@@ -38,7 +38,22 @@
 #include <pcl/point_types.h>
 #include <pcl/filters/voxel_grid.h>
 
+// aritoshi
+#include "func.cuh"
+
 #define DEFAULT_NDMAP_FILE "../data/nd_dat"
+
+#define cuda 1  // 0 -> cuda off ,1-> on
+
+/* CUDA用 */
+// aritoshi
+NDMapPtr NDmap_dev;
+NDPtr NDs_dev;
+int *NDs_num_dev;
+PointPtr scan_points_dev;
+
+NDPtr *nd_dev;     // initialize_NDmap_layer_cuda で使われるやつら
+//NDMapPtr ndmap_dev;// initialize_NDmap_layer_cuda で使われるやつら
 
 /*grobal variables*/
 NDMapPtr NDmap; /*���ֲ�����*/
@@ -165,6 +180,10 @@ static void map_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
       p.z = item->z;
       */
       add_point_map(NDmap, &p);
+      // aritoshi
+      if(cuda == 1){
+      add_point_map_cuda(NDmap_dev, NDs_num_dev, NDs_dev, &p);
+      }
     }
     std::cout << "Finished loading point cloud map." << std::endl;
     std::cout << "Map points num: " << map_ptr->size() << " points." << std::endl;
@@ -190,9 +209,13 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
   int j = 0;
 
   Posture pose, bpose, initial_pose;
+  // aritoshi
+  Posture pose_cuda;
   static Posture key_pose;
   //  double e=0,theta,x2,y2;
   double e = 0;
+  // aritoshi
+  double e_cuda = 0;
   double x_offset, y_offset, z_offset, theta_offset;
   //  double distance,diff;
   double distance;
@@ -313,6 +336,8 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
   pose.theta3 = prev_pose.theta3 + theta_offset;
 
   initial_pose = pose;
+  // aritoshi
+  pose_cuda = pose;
 
   // matching
   for (layer_select = 1; layer_select >= 1; layer_select -= 1)
@@ -325,11 +350,26 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
         break;
       }
       bpose = pose;
-
+matching_start = std::chrono::system_clock::now();
       e = adjust3d(scan_points, scan_points_num, &pose, layer_select);
+matching_end = std::chrono::system_clock::now();
+exe_time = std::chrono::duration_cast<std::chrono::microseconds>(matching_end - matching_start).count() / 1000.0;
+std::cout << exe_time << " , ";
+      // aritoshi
+      if(cuda == 1){
+matching_start = std::chrono::system_clock::now();
+      e_cuda = adjust3d_cuda(NDmap_dev, NDs_dev, scan_points, &scan_points_dev, scan_points_num, &pose_cuda, layer_select,0.0001);
+matching_end = std::chrono::system_clock::now();
+exe_time = std::chrono::duration_cast<std::chrono::microseconds>(matching_end - matching_start).count() / 1000.0;
+std::cout << exe_time << std::endl;
+      }
       //	printf("%f\n",e);
 
       pose_mod(&pose);
+      // aritoshi
+      if(cuda == 1){
+      pose_mod(&pose_cuda);
+      }
 
       if ((bpose.x - pose.x) * (bpose.x - pose.x) + (bpose.y - pose.y) * (bpose.y - pose.y) +
               (bpose.z - pose.z) * (bpose.z - pose.z) + 3 * (bpose.theta - pose.theta) * (bpose.theta - pose.theta) +
@@ -342,6 +382,20 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
     }
     iteration = j;
 
+    // aritoshi
+    double diff = 0;
+    if(cuda == 1){
+      diff = (pose_cuda.x - pose.x) * (pose_cuda.x - pose.x) + (pose_cuda.y - pose.y) * (pose_cuda.y - pose.y) +
+              (pose_cuda.z - pose.z) * (pose_cuda.z - pose.z) + 3 * (pose_cuda.theta - pose.theta) * (pose_cuda.theta - pose.theta) +
+              3 * (pose_cuda.theta2 - pose.theta2) * (pose_cuda.theta2 - pose.theta2) +
+              3 * (pose_cuda.theta3 - pose.theta3) * (pose_cuda.theta3 - pose.theta3);
+    if (diff <  0.00001)
+    {
+      //std::cout << "cuda : OK\n" << std::endl;
+    }else{
+      //std::cout << "cuda : NG -- diff : " << diff << "\n" << std::endl;
+    }
+    }
     /*gps resetting*/
     if (g_use_gnss)
     {
@@ -536,7 +590,7 @@ br.sendTransform(tf::StampedTransform(transform, ros::Time::now(),  "world", "nd
 
   matching_end = std::chrono::system_clock::now();
   exe_time = std::chrono::duration_cast<std::chrono::microseconds>(matching_end - matching_start).count() / 1000.0;
-
+/*
   std::cout << "-----------------------------------------------------------------" << std::endl;
   std::cout << "Sequence number: " << msg->header.seq << std::endl;
   std::cout << "Number of scan points: " << msg->size() << " points." << std::endl;
@@ -547,7 +601,7 @@ br.sendTransform(tf::StampedTransform(transform, ros::Time::now(),  "world", "nd
   std::cout << "(" << pose.x << ", " << pose.y << ", " << pose.z << ", " << pose.theta << ", " << pose.theta2 << ", "
             << pose.theta3 << ")" << std::endl;
   std::cout << "-----------------------------------------------------------------" << std::endl;
-
+*/
   //  ROS_INFO("get data %d",msg->points.size());
 }
 
@@ -575,6 +629,7 @@ int add_point_covariance(NDPtr nd, PointPtr p)
 
   return 1;
 }
+
 
 int inv_check(double inv[3][3])
 {
@@ -689,13 +744,13 @@ int get_ND(NDMapPtr ndmap, PointPtr point, NDPtr *nd, int ndmode)
   NDPtr *ndp[8];
 
   /*
-    
+
   +---+---+
   |   |   |
   +---+---+
   |   |###|
   +---+---+
-  
+
   */ /*
    layer = layer_select;
    while(layer > 0){
@@ -834,6 +889,10 @@ NDMapPtr initialize_NDmap_layer(int layer, NDMapPtr child)
   return ndmap;
 }
 
+
+
+
+
 /*ND�ܥ�����ν��*/
 NDMapPtr initialize_NDmap(void)
 {
@@ -862,6 +921,10 @@ NDMapPtr initialize_NDmap(void)
 
   return ndmap; /*���ֲ����ؤΥݥ��󥿤��֤�*/
 }
+
+
+
+
 
 int round_covariance(NDPtr nd)
 {
@@ -1142,6 +1205,8 @@ int main(int argc, char *argv[])
     return 1;
   }
 
+  std::cout << cuda_add() << std::endl;
+
   Eigen::Translation3f tl_btol(_tf_x, _tf_y, _tf_z);  // tl: translation
   Eigen::AngleAxisf rot_x_btol(_tf_roll, Eigen::Vector3f::UnitX());  // rot: rotation
   Eigen::AngleAxisf rot_y_btol(_tf_pitch, Eigen::Vector3f::UnitY());
@@ -1177,8 +1242,15 @@ int main(int argc, char *argv[])
   q_local_to_global.setRPY(0.0, 0.0, g_map_rotation);
   tf_local_to_global = (tl_local_to_global * rot_z_local_to_global * rot_y_local_to_global * rot_x_local_to_global).matrix();
 
+
+
   /*initialize(clear) NDmap data*/
   NDmap = initialize_NDmap();
+  // aritoshi
+  if(cuda == 1){
+  initialize_NDmap_cuda(&NDs_dev, &NDs_num_dev, &nd_dev, &NDmap_dev, g_map_cellsize, g_map_x, g_map_y, g_map_z);
+  initialize_scan_points_cuda(&scan_points_dev, 13000);
+  }
 
   // load map
   prev_pose.x = (g_ini_x - g_map_center_x) * cos(-g_map_rotation) - (g_ini_y - g_map_center_y) * sin(-g_map_rotation);
@@ -1204,6 +1276,11 @@ int main(int argc, char *argv[])
     }
   */
   ros::spin();
+
+  //aritoshi
+  if(cuda == 1){
+  free_procedure(&NDs_dev, &NDs_num_dev, &nd_dev, &NDmap_dev,&scan_points_dev);
+  }
 
   save_nd_map((char *)"/tmp/ndmap");
   return 1;

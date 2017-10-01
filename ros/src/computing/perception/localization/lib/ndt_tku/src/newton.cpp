@@ -486,6 +486,7 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
         if (nd[j]->num > 10 && nd[j]->sign == 1)
         {
           //	double e;
+          // aritoshi
           esum += calc_summand3d(&p, nd[j], pose, g, hH, qd3, dist);
           add_matrix6d(Hsumh, hH, Hsumh);
 

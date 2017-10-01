@@ -7,6 +7,7 @@ execute_process(
 )
 
 find_package(PCL REQUIRED)
+find_package(CUDA REQUIRED)
 
 IF(NOT (PCL_VERSION VERSION_LESS "1.7.2"))
 SET(FAST_PCL_PACKAGES filters registration)
@@ -67,11 +68,21 @@ endif()
 
 include_directories(include ${catkin_INCLUDE_DIRS})
 
+#IF(CUDA_FOUND)
+#INCLUDE_DIRECTORIES(${CUDA_INCLUDE_DIRS})
+#ENDIF()
+
+#IF("${ARCHITECTURE}" MATCHES "^arm")
+#LINK_DIRECTORIES(/usr/lib/arm-linux-gnueabihf/tegra)
+#endif()
+
 IF(PCL_VERSION VERSION_LESS "1.7.2")
 SET(CMAKE_CXX_FLAGS "-std=c++11 -O2 -g -Wall ${CMAKE_CXX_FLAGS}")
 ELSE(PCL_VERSION VERSION_LESS "1.7.2")
 SET(CMAKE_CXX_FLAGS "-std=c++11 -O2 -g -Wall -DUSE_FAST_PCL ${CMAKE_CXX_FLAGS}")
 ENDIF(PCL_VERSION VERSION_LESS "1.7.2")
+
+set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};-std=c++11)
 
 add_executable(ndt_matching nodes/ndt_matching/ndt_matching.cpp)
 add_executable(ndt_mapping nodes/ndt_mapping/ndt_mapping.cpp)
@@ -81,8 +92,8 @@ add_executable(queue_counter nodes/queue_counter/queue_counter.cpp)
 
 if ("${ROS_VERSION}" MATCHES "(indigo|jade)")
 #add_executable(ndt_matching_tku nodes/ndt_matching_tku/ndt_matching_tku.cpp nodes/ndt_matching_tku/newton.cpp nodes/ndt_matching_tku/algebra.cpp)
-add_executable(ndt_matching_tku nodes/ndt_matching_tku/ndt_matching_tku.cpp)
-add_executable(ndt_mapping_tku nodes/ndt_mapping_tku/ndt_mapping_tku.cpp)
+cuda_add_executable(ndt_matching_tku nodes/ndt_matching_tku/ndt_matching_tku.cpp nodes/ndt_matching_tku/func.cu)
+#add_executable(ndt_mapping_tku nodes/ndt_mapping_tku/ndt_mapping_tku.cpp)
 add_executable(mapping nodes/ndt_mapping_tku/mapping.cpp)
 add_executable(tf_mapping nodes/tf_mapping/tf_mapping.cpp)
 endif()
@@ -94,8 +105,8 @@ target_link_libraries(local2global ${catkin_LIBRARIES})
 target_link_libraries(queue_counter ${catkin_LIBRARIES})
 
 if ("${ROS_VERSION}" MATCHES "(indigo|jade)")
-target_link_libraries(ndt_matching_tku ndt_tku ${catkin_LIBRARIES})
-target_link_libraries(ndt_mapping_tku ndt_tku ${catkin_LIBRARIES})
+target_link_libraries(ndt_matching_tku ndt_tku ${catkin_LIBRARIES})# ${CUDA_LIBRARIES})
+#target_link_libraries(ndt_mapping_tku ndt_tku ${catkin_LIBRARIES})
 target_link_libraries(mapping ndt_tku ${catkin_LIBRARIES})
 target_link_libraries(tf_mapping ${catkin_LIBRARIES})
 endif()
@@ -103,4 +114,3 @@ endif()
 add_dependencies(ndt_matching autoware_msgs_generate_messages_cpp)
 add_dependencies(ndt_mapping autoware_msgs_generate_messages_cpp)
 add_dependencies(lazy_ndt_mapping autoware_msgs_generate_messages_cpp)
-

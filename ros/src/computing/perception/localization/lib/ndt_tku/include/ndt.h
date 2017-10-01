@@ -21,7 +21,7 @@
 /*root cell size*/
 /*
   #define MAP_CELLSIZE 0.2 //m
-  
+
   #define MAP_X 128
   #define MAP_Y 80
   #define MAP_Z 48
@@ -59,7 +59,7 @@
 
 //moriyama_map
 #if 0
-#define MAP_CENTER_X -15741 
+#define MAP_CENTER_X -15741
 #define MAP_CENTER_Y -85697
 #define MAP_CENTER_Z 70
 #define MAP_ROTATION 0.7
@@ -205,17 +205,17 @@ typedef struct Normaldistribution{
   /*covariances*/
   Point  mean;
   double covariance[3][3];
-  double inv_covariance[3][3];	
+  double inv_covariance[3][3];
   /*for calcurate covariances*/
   int flag;	/*is updated*/
   int sign;
 
   int num;   /*data num*/
-  
+
   double m_x;/*mean*/
   double m_y;
   double m_z;
-  
+
   double c_xx;/*covariance*/
   double c_yy;
   double c_zz;
@@ -230,7 +230,7 @@ typedef struct Normaldistribution{
   double w;
 
   double l[3];/*eigen value*/
-  
+
   int   is_source;/**/
   //  NDPtr child[8]; /*upper level layer*/
 }NormalDistribution;
