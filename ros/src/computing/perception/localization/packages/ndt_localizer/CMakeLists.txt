@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(ndt_localizer)
+
 find_package(PCL REQUIRED)
 
 IF(NOT (PCL_VERSION VERSION_LESS "1.7.2"))
@@ -60,7 +61,6 @@ add_executable(lazy_ndt_mapping nodes/lazy_ndt_mapping/lazy_ndt_mapping.cpp)
 add_executable(local2global nodes/local2global/local2global.cpp)
 add_executable(queue_counter nodes/queue_counter/queue_counter.cpp)
 
-#add_executable(ndt_matching_tku nodes/ndt_matching_tku/ndt_matching_tku.cpp nodes/ndt_matching_tku/newton.cpp nodes/ndt_matching_tku/algebra.cpp)
 add_executable(ndt_matching_tku nodes/ndt_matching_tku/ndt_matching_tku.cpp)
 add_executable(ndt_mapping_tku nodes/ndt_mapping_tku/ndt_mapping_tku.cpp)
 add_executable(mapping nodes/ndt_mapping_tku/mapping.cpp)

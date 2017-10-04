@@ -178,25 +178,20 @@ void depth(PointPtr scan, int num, PosturePtr pose)
 
 double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
 {
-  // double gsum[6], Hsum[6][6],Hsumh[6][6],Hinv[6][6],g[6],gd[6],ge[6][6],H[6][6],hH[6][6];
   double gsum[6], Hsum[6][6], Hsumh[6][6], Hinv[6][6], g[6], H[6][6], hH[6][6];
-  // double sc[3][3],sc_d[3][3][3],sc_dd[3][3][3][3],sce[3][3][3];
   double sc[3][3], sc_d[3][3][3], sc_dd[3][3][3][3];
-  // double *work,*work2,*work3;
   double *work;
   double esum = 0, gnum = 0;
   NDPtr nd[8];
   NDMapPtr nd_map;
   int i, j, n, m, k, layer;
-  double x, y, z;  //,sa,ca,sb,cb,sg,cg;
+  double x, y, z;
   PosturePtr pose;
-  // Point p,pe[6],pd;
   Point p;
   PointPtr scanptr;
-  // int inc,count;
   int inc;
   int ndmode;
-  double dist, weight_total, weight_sum, weight_next;
+  double dist;
 
   /*initialize*/
   gsum[0] = 0;
@@ -210,16 +205,13 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
   zero_matrix6d(Hsumh);
   pose = initial;
 
-  /*�Ѵ������1����ʬʬ��ޤ�ˤβ�žʬ��׻�*/
   set_sincos(pose->theta, pose->theta2, pose->theta3, sc_d);
   set_sincos(pose->theta + E_THETA, pose->theta2, pose->theta3, sc_dd[0]);
   set_sincos(pose->theta, pose->theta2 + E_THETA, pose->theta3, sc_dd[1]);
   set_sincos(pose->theta, pose->theta2, pose->theta3 + E_THETA, sc_dd[2]);
 
-  /*��ɸ�Ѵ���*/
   set_sincos2(pose->theta, pose->theta2, pose->theta3, sc);
 
-  /*�켡��ʬ������Ѳ����ʤ���ʬ�η׻�*/
   qd3[0][0] = 1;
   qd3[0][1] = 0;
   qd3[0][2] = 0;
@@ -242,6 +234,7 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
     }
   }
 
+<<<<<<< HEAD
 //#if WEIGHTED_SELECT
 #if 0
   if (_downsampler_num == 0)
@@ -271,6 +264,11 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
   // using voxel grid filter
   switch (target)
   {
+=======
+  // using voxel grid filter
+  switch (target)
+  {
+>>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
     case 3:
       inc = 1;
       ndmode = 0;
@@ -293,6 +291,7 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
 
   scanptr = scan;
 
+<<<<<<< HEAD
   //#if WEIGHTED_SELECT
 #if 0
   if (_downsampler_num == 0)
@@ -442,6 +441,58 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
       }
     }
 
+=======
+  // case of voxel grid filter used
+  for (i = 0; i < num; i += inc)
+  {
+    x = scanptr->x;
+    y = scanptr->y;
+    z = scanptr->z;
+    dist = 1;
+    scanptr += inc;
+
+    p.x = x * sc[0][0] + y * sc[0][1] + z * sc[0][2] + pose->x;
+    p.y = x * sc[1][0] + y * sc[1][1] + z * sc[1][2] + pose->y;
+    p.z = x * sc[2][0] + y * sc[2][1] + z * sc[2][2] + pose->z;
+
+    if (ndmode == 1)
+      layer = 1;  // layer_select;
+    if (ndmode == 0)
+      layer = 0;  // layer_select;
+    nd_map = NDmap;
+
+    while (layer > 0)
+    {
+      if (nd_map->next)
+        nd_map = nd_map->next;
+      layer--;
+    }
+
+
+    if (!get_ND(nd_map, &p, nd, target))
+      continue;
+
+    work = (double *)sc_d;
+    for (m = 0; m < 3; m++)
+    {
+      for (k = 0; k < 3; k++)
+      {
+        qd3[m + 3][k] = x * (*work) + y * (*(work + 1)) + z * (*(work + 2));
+        work += 3;
+      }
+    }
+
+    work = (double *)sc_dd;
+    for (n = 0; n < 3; n++) {
+      for (m = 0; m < 3; m++) {
+        for (k = 0; k < 3; k++) {
+          qdd3[n + 3][m + 3][k] = (*work * x + *(work + 1) * y + *(work + 2) * z - qd3[m + 3][k]) / E_THETA;
+          work += 3;
+        }
+      }
+    }
+
+>>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
     if (nd[j])
     {
       if (nd[j]->num > 10 && nd[j]->sign == 1)
@@ -542,7 +593,6 @@ void set_sincos2(double a, double b, double g, double sc[3][3])
 
 void set_sincos(double a, double b, double g, double sc[3][3][3])
 {
-  //  double sa,ca,sb,cb,sg,cg;
   double dd[3][3][3], d[3][3];
   int i, j, k;
 
