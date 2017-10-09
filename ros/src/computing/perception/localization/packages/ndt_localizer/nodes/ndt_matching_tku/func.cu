@@ -3,6 +3,7 @@
 #include <math.h>
 
 #define E_ERROR 0.001
+#define P 3000
 
 __device__ int addem( int a, int b ) {
     return a + b;
@@ -893,8 +894,8 @@ int get_ND_cuda(NDPtr NDs, NDMapPtr ndmap, PointPtr point, NDPtr *nd, int ndmode
   {
     if (*ndp[i] != 0)
     {
-      if (!(*ndp[i])->flag)
-        update_covariance_cuda(*ndp[i]);
+      //if (!(*ndp[i])->flag)
+      //  update_covariance_cuda(*ndp[i]);
       nd[i] = *ndp[i];
     }
     else
@@ -1038,7 +1039,7 @@ double calc_summand3d_cuda(PointPtr p, NDPtr nd, Posture pose, double g[6], doub
 
     return e;
 }
-
+/*
 __global__
 void adjust3d_func(NDPtr NDs,NDMapPtr NDmap,PointPtr scanptr,PosturePtr pose, int num, double sc[3][3], double sc_d[3][3][3], double sc_dd[3][3][3][3],
               double dist, double E_THETA, double *esum, double *Hsumh_dev, double *gnum, double *gsum_dev)
@@ -1158,9 +1159,130 @@ void adjust3d_func(NDPtr NDs,NDMapPtr NDmap,PointPtr scanptr,PosturePtr pose, in
     }
   }
 }
+*/
+
+__global__
+void adjust3d_func(NDPtr NDs,NDMapPtr NDmap,PointPtr scanptr,PosturePtr pose, int num, double sc[3][3], double sc_d[3][3][3], double sc_dd[3][3][3][3],
+              double dist, double E_THETA, double *esum, double *Hsumh_dev, double *gnum, double *gsum_dev)
+{
+  int i;
+  int j = 0;
+  double x,y,z;
+  int m,k,n;
+  Point p;
+  NDMapPtr nd_map;
+  NDPtr nd[8];
+  double *work;
+  double qd3[6][3], qdd3[6][6][3], g[6], hH[6][6];
+  double Hsumh[6][6], gsum[6];
+
+  unsigned int tid = thredIdx.x;
+  unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+
+  *esum = 0;
+  *gnum = 0;
+  zero_matrix6d_cuda(Hsumh);
+  zero_matrix_cuda(gsum);
 
 
+  qd3[0][0] = 1;
+  qd3[0][1] = 0;
+  qd3[0][2] = 0;
 
+  qd3[1][0] = 0;
+  qd3[1][1] = 1;
+  qd3[1][2] = 0;
+
+  qd3[2][0] = 0;
+  qd3[2][1] = 0;
+  qd3[2][2] = 1;
+  for (n = 0; n < 6; n++)
+  {
+    for (m = 0; m < 6; m++)
+    {
+      for (k = 0; k < 3; k++)
+      {
+        qdd3[n][m][k] = 0;
+      }
+    }
+  }
+
+  // 境界チェック
+  if(idx >= num) return;
+    //*���κ�ɸ�Ѵ��׻�
+    x = scanptr[idx]->x;
+    y = scanptr[idx]->y;
+    z = scanptr[idx]->z;
+
+    p.x = x * sc[0][0] + y * sc[0][1] + z * sc[0][2] + pose->x;
+    p.y = x * sc[1][0] + y * sc[1][1] + z * sc[1][2] + pose->y;
+    p.z = x * sc[2][0] + y * sc[2][1] + z * sc[2][2] + pose->z;
+
+    nd_map = NDmap;
+
+    if (!get_ND_cuda(NDs, nd_map, &p, nd, 1))
+      continue;
+
+    //*q�ΰ켡��ʬ(�Ѳ�������Τ�)
+    work = (double *)sc_d;
+    for (m = 0; m < 3; m++)
+    {
+      for (k = 0; k < 3; k++)
+      {
+        // qd3[txtytzabg][xyz]
+        qd3[m + 3][k] = x * (*work) + y * (*(work + 1)) + z * (*(work + 2));
+        // x*sc_d[m][k][0] + y*sc_d[m][k][1] + z*sc_d[m][k][2];
+        work += 3;
+      }
+    }
+
+    //*q������ʬ���Ѳ�������Τߡ�
+    work = (double *)sc_dd;
+    for (n = 0; n < 3; n++)
+    {
+      for (m = 0; m < 3; m++)
+      {
+        for (k = 0; k < 3; k++)
+        {
+          qdd3[n + 3][m + 3][k] = (*work * x + *(work + 1) * y + *(work + 2) * z - qd3[m + 3][k]) / E_THETA;
+          work += 3;
+        }
+      }
+    }
+
+    //*�����̷׻�
+    if (nd[j] && nd[j]->num > 10 && nd[j]->sign == 1)
+    {
+        //	double e;
+        *esum += calc_summand3d_cuda(&p,nd[j],*pose, g, hH, qd3, qdd3, 1.0);
+        add_matrix6d_cuda(Hsumh, hH, Hsumh);
+
+        //	  dist =1;
+        gsum[0] += g[0];                //*nd[j]->w;
+        gsum[1] += g[1];                //*nd[j]->w;
+        gsum[2] += g[2] + pose->z * 0;  //*nd[j]->w;
+        gsum[3] += g[3];                //*nd[j]->w;
+        gsum[4] += g[4];                //+(pose->theta2-(0.0))*1;//*nd[j]->w;
+        gsum[5] += g[5];                //*nd[j]->w;
+        *gnum += 1;  // nd[j]->w;
+    }
+  for(int stride = 1; stride < blockDim.x; stride *= 2){
+    int index = 2 * stride * tid;
+    if(index < blockDim.x){
+      idata[index] += idata[index + stride];
+    }
+    __syncthreads();
+  }
+
+  __syncthreads();
+
+  for(i=0;i<6;i++){
+    gsum_dev[i] = gsum[i];
+    for(j=0;j<6;j++){
+      Hsumh_dev[6*i + j] = Hsumh[i][j];
+    }
+  }
+}
 
 
 
