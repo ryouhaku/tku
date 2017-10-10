@@ -212,6 +212,7 @@ typedef struct Normaldistribution
   int flag; /*is updated*/
   int sign;
 
+<<<<<<< HEAD
   int num; /*data num*/
 
   double m_x; /*mean*/
@@ -219,6 +220,15 @@ typedef struct Normaldistribution
   double m_z;
 
   double c_xx; /*covariance*/
+=======
+  int num;   /*data num*/
+
+  double m_x;/*mean*/
+  double m_y;
+  double m_z;
+
+  double c_xx;/*covariance*/
+>>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
   double c_yy;
   double c_zz;
   double c_xy;
@@ -231,9 +241,15 @@ typedef struct Normaldistribution
 
   double w;
 
+<<<<<<< HEAD
   double l[3]; /*eigen value*/
 
   int is_source; /**/
+=======
+  double l[3];/*eigen value*/
+
+  int   is_source;/**/
+>>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
   //  NDPtr child[8]; /*upper level layer*/
 } NormalDistribution;
 
