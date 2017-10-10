@@ -188,6 +188,14 @@ static void map_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
     std::cout << "Finished loading point cloud map." << std::endl;
     std::cout << "Map points num: " << map_ptr->size() << " points." << std::endl;
 
+    int test;
+    test = Test_NDmap(NDmap,NDmap_dev,&NDs_dev, &NDs_num_dev, &nd_dev, &NDmap_dev, g_map_cellsize, g_map_x, g_map_y, g_map_z);
+    if(test == 0){
+      std::cout << "NDmap_dev : OK" << std::endl;
+    }else{
+      std::cout << "NDmap_dev : NG" << std::endl;
+    }
+
     save_nd_map(g_ndmap_name);
     is_map_exist = 1;
 
