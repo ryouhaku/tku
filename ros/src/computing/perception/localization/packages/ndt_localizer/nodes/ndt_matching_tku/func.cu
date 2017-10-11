@@ -4,6 +4,7 @@
 
 #define E_ERROR 0.001
 #define P 3000
+#define ID 10000
 
 __device__ int addem( int a, int b ) {
     return a + b;
@@ -1738,6 +1739,60 @@ double adjust3d_cuda_parallel(NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan, Poin
   scanptr = scan;
   cudaMemcpy(*scan_points_dev, scanptr, num * sizeof(Point), cudaMemcpyHostToDevice);
 
+double *x, *y, *z, *e;
+double (*g)[6];
+double (*hH)[6][6];
+double (*qd3)[6][3];
+double (*qdd3)[6][6][3];
+Point *p;
+int *gnum;
+NDPtr *nd;
+
+int s,t,u,v;
+
+  cudaMalloc(&x,ID * sizeof(double));
+  cudaMalloc(&y,ID * sizeof(double));
+  cudaMalloc(&z,ID * sizeof(double));
+  cudaMalloc(&p,ID * sizeof(Point));
+  cudaMalloc(&e,ID * sizeof(double));
+  cudaMalloc(&g,ID * sizeof(double) * 6);
+  cudaMalloc(&hH,ID * sizeof(double) * 6 * 6);
+  cudaMalloc(&qd3,ID * sizeof(double) * 6 * 3);
+  cudaMalloc(&qdd3,ID * sizeof(double) * 6 * 6 * 3);
+  cudaMalloc(&gnum,ID * sizeof(int));
+  cudaMalloc(&nd,ID * sizeof(NDPtr));
+
+  for(s = 0; s < ID; s++){
+    qd3_init[s][0][0] = 1;
+    qd3_init[s][0][1] = 0;
+    qd3_init[s][0][2] = 0;
+
+    qd3_init[s][1][0] = 0;
+    qd3_init[s][1][1] = 1;
+    qd3_init[s][1][2] = 0;
+
+    qd3_init[s][2][0] = 0;
+    qd3_init[s][2][1] = 0;
+    qd3_init[s][2][2] = 1;
+
+    gnum_init[s] = 0;
+    for (t = 0; t < 6; t++)
+    {
+      for (u = 0; u < 6; u++)
+      {
+        for (v = 0; v < 3; v++)
+        {
+          qdd3_init[s][t][u][v] = 0;
+        }
+      }
+    }
+  }
+
+  cudaMemcpy(&qd3,qd3_init,sizeof(qd3_init),cudaMemcpyHostToDevice);
+  cudaMemcpy(&qdd3,qdd3_init,sizeof(qdd3_init),cudaMemcpyHostToDevice);
+  cudaMemcpy(&gnum,gnum_init,sizeof(gnum_init),cudaMemcpyHostToDevice);
+
+
   adjust3d_func_parallel<<<1,1>>>(NDs, NDmap_dev, *scan_points_dev, pose, num, sc, sc_d, sc_dd,
                 dist, E_THETA, esum_dev, Hsumh_dev, gnum_dev, gsum_dev, x, y, z, p, e, g, hH,
                 qd3, qdd3, gnum, nd);
@@ -1786,6 +1841,19 @@ double adjust3d_cuda_parallel(NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan, Poin
     pose->theta3 -= (Hinv[5][0] * gsum[0] + Hinv[5][1] * gsum[1] + Hinv[5][2] * gsum[2] + Hinv[5][3] * gsum[3] +
                      Hinv[5][4] * gsum[4] + Hinv[5][5] * gsum[5]);
   }
+
+  cudaFree();
+  cudaFree();
+  cudaFree();
+  cudaFree();
+  cudaFree();
+  cudaFree();
+  cudaFree();
+  cudaFree();
+  cudaFree();
+  cudaFree();
+  cudaFree();
+
   return esum;
 }
 
