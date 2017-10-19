@@ -1,10 +1,27 @@
 #include <stdio.h>
 #include "ndt.h"
 #include <math.h>
+#include <string>
+#include "std_msgs/String.h"
 
 #define E_ERROR 0.001
 #define P 3000
 #define ID 10000
+#define THREASH 0.0000000001
+
+void CHECK(cudaError call,unsigned int line)
+{
+  const cudaError error = call;
+  if (error != cudaSuccess)
+  {
+    printf("Error: %s:%d, ", __FILE__, line);
+    printf("code:%d, reason: %s\n", error, cudaGetErrorString(error));
+    exit(1);
+  }
+}
+
+__device__
+int update_covariance_cuda(NDPtr nd);
 
 __device__ int addem( int a, int b ) {
     return a + b;
@@ -17,25 +34,29 @@ __global__ void cuda_add_dev( int *a, int *b, int *c ) {
 int cuda_add(){
   int a,b,c;
   int *dev_a, *dev_b, *dev_c;
-  cudaMalloc( (void**)&dev_a, sizeof(int) );
-  cudaMalloc( (void**)&dev_b, sizeof(int) );
-  cudaMalloc( (void**)&dev_c, sizeof(int) );
+  CHECK(cudaMalloc( (void**)&dev_a, sizeof(int) ),__LINE__);
+  CHECK(cudaMalloc( (void**)&dev_b, sizeof(int) ),__LINE__);
+  CHECK(cudaMalloc( (void**)&dev_c, sizeof(int) ),__LINE__);
 
 a = 4;
 b = 8;
-  cudaMemcpy( dev_a, &a , sizeof(int), cudaMemcpyHostToDevice);
-  cudaMemcpy( dev_b, &b , sizeof(int), cudaMemcpyHostToDevice);
+  CHECK(cudaMemcpy( dev_a, &a , sizeof(int), cudaMemcpyHostToDevice),__LINE__);
+  CHECK(cudaMemcpy( dev_b, &b , sizeof(int), cudaMemcpyHostToDevice),__LINE__);
 
   cuda_add_dev<<<1,1>>>( dev_a, dev_b, dev_c );
 
-  cudaMemcpy( &c, dev_c, sizeof(int),
-                          cudaMemcpyDeviceToHost );
+  CHECK(cudaMemcpy( &c, dev_c, sizeof(int),
+                          cudaMemcpyDeviceToHost ),__LINE__);
   printf( "4 + 8 = %d\n", c );
   cudaFree( dev_a );
   cudaFree( dev_b );
   cudaFree( dev_c );
 
   return c;
+}
+
+void cudaReset(){
+  CHECK(cudaDeviceReset(),__LINE__);
 }
 
 __global__
@@ -47,7 +68,7 @@ void add_ND_cuda(NDPtr nds_dev,int *nds_num_dev)
     printf("cuda over flow\n");
   }else{
     ndp = nds_dev + *nds_num_dev;
-    nds_num_dev++;
+    *nds_num_dev += 1;
 
     ndp->flag = 0;
     ndp->sign = 0;
@@ -85,7 +106,10 @@ void initialize_NDmap_layer_cuda_subfunc(NDMapPtr ndmap,int x,int y,int z,int la
   //  printf("size %f\n",ndmap->size);
 
   ndp = nd;
-
+printf("g_map_cellsize : %f, \nlayer : %d, \n((int)1 << layer) : %d, \ng_map_cellsize * ((int)1 << layer) : %f\n",g_map_cellsize,layer,((int)1 << layer),g_map_cellsize * ((int)1 << layer));
+printf("hogehoge\n");
+printf("ndmap_dev_init : %d %d %d %d %d %f\n",ndmap->x,ndmap->y,ndmap->z,ndmap->to_x,ndmap->to_y,ndmap->size);
+printf("NDmap_dev address(dev) : %p\n",ndmap);
   /*�쥤�䡼�ν��*/
   for (i = 0; i < x; i++)
   {
@@ -118,11 +142,12 @@ void initialize_NDmap_layer_cuda(int layer, NDPtr **nd_dev_ptr, NDMapPtr *ndmap_
   /*����γ��ݡ�*/
   //nd = (NDPtr *)malloc(x * y * z * sizeof(NDPtr));
   //ndmap = (NDMapPtr)malloc(sizeof(NDMap));
-  cudaMalloc((void **)&(*nd_dev_ptr), x * y * z * sizeof(NDPtr));
-  cudaMalloc((void **)&(*ndmap_dev_ptr), sizeof(NDMap));
-
+  CHECK(cudaMalloc(&(*nd_dev_ptr), x * y * z * sizeof(NDPtr)),__LINE__);
+  CHECK(cudaMalloc(&(*ndmap_dev_ptr), sizeof(NDMap)),__LINE__);
+printf("hoge\n");
   initialize_NDmap_layer_cuda_subfunc<<<1,1>>>(*ndmap_dev_ptr,x,y,z,layer,*nd_dev_ptr, g_map_cellsize);
-
+std::cout << "NDmap_dev address : " << *ndmap_dev_ptr << std::endl;
+printf("init layer subfunc : %d %d %d\n",x,y,z);
 /*
   ndmap->x = x;
   ndmap->y = y;
@@ -159,10 +184,11 @@ void initialize_NDmap_layer_cuda(int layer, NDPtr **nd_dev_ptr, NDMapPtr *ndmap_
 
 void initialize_NDmap_cuda(NDPtr *NDs_dev_ptr, int **NDs_num_dev_ptr, NDPtr **nd_dev_ptr, NDMapPtr *ndmap_dev_ptr, double g_map_cellsize, int g_map_x, int g_map_y, int g_map_z)
 {
-  cudaMalloc((void **)&(*NDs_dev_ptr), sizeof(NormalDistribution) * MAX_ND_NUM);
-  cudaMalloc((void **)&(*NDs_num_dev_ptr), sizeof(int));
+  std::cout << "ND : " << sizeof(NormalDistribution) << " MAX_ND_NUM : " << MAX_ND_NUM << std::endl;
+  CHECK(cudaMalloc((void **)&(*NDs_dev_ptr), sizeof(NormalDistribution) * MAX_ND_NUM),__LINE__);
+  CHECK(cudaMalloc((void **)&(*NDs_num_dev_ptr), sizeof(int)),__LINE__);
   int zero = 0;
-  cudaMemcpy((void **)&(*NDs_num_dev_ptr), &zero, sizeof(int), cudaMemcpyHostToDevice);
+  CHECK(cudaMemcpy(*NDs_num_dev_ptr, &zero, sizeof(int), cudaMemcpyHostToDevice),__LINE__);
 
   //int i;
   //NDMapPtr ndmap;
@@ -182,7 +208,7 @@ void initialize_NDmap_cuda(NDPtr *NDs_dev_ptr, int **NDs_num_dev_ptr, NDPtr **nd
   //{
     //ndmap =
     initialize_NDmap_layer_cuda(1, nd_dev_ptr, ndmap_dev_ptr, g_map_cellsize, g_map_x, g_map_y, g_map_z);//, ndmap);
-
+    CHECK(cudaDeviceSynchronize(),__LINE__);
     /*progress dots*/
     //    printf("layer %d\n",i);
   //}
@@ -201,6 +227,7 @@ int add_point_covariance_cuda(NDPtr nd, PointPtr p)
   // printf("%d \n",nd->num);
 
   /*calcurate means*/
+  printf("add_point_covariance_cuda p->x : %f\n",p->x);
   nd->m_x += p->x;
   nd->m_y += p->y;
   nd->m_z += p->z;
@@ -214,6 +241,8 @@ int add_point_covariance_cuda(NDPtr nd, PointPtr p)
   nd->c_yz += p->y * p->z;
   nd->c_zx += p->z * p->x;
 
+printf("gpu - num : %d, m_x : %f, m_y : %f, m_z : %f, c_xx : %f\n",nd->num,nd->m_x,nd->m_y,nd->m_z,nd->c_xx);
+
   return 1;
 }
 
@@ -222,7 +251,7 @@ NDPtr add_ND_cuda(int *NDs_num_dev,NDPtr NDs_dev)
 {
   NDPtr ndp;
   // int m;
-
+printf("*NDs_num_dev : %d\n",*NDs_num_dev);
   if (*NDs_num_dev >= MAX_ND_NUM)
   {
     printf("over flow\n");
@@ -230,7 +259,7 @@ NDPtr add_ND_cuda(int *NDs_num_dev,NDPtr NDs_dev)
   }
 
   ndp = NDs_dev + *NDs_num_dev;
-  (*NDs_num_dev)++;
+  *NDs_num_dev += 1;
 
   ndp->flag = 0;
   ndp->sign = 0;
@@ -257,14 +286,21 @@ void add_point_map_cuda_func(NDMapPtr ndmap, int *NDs_num_dev, NDPtr NDs_dev, Po
   // aritoshi
   PointPtr point = &p;
 
+  //printf("point->x : %f, p.x : %f\n",point->x,p.x);
+/*  printf("point->y : %f, p.y : %f",point->y,p.y);
+  printf("point->z : %f, p.z : %f",point->z,p.z);
+*/
+
   /*mapping*/
   x = (point->x / ndmap->size) + ndmap->x / 2;
   y = (point->y / ndmap->size) + ndmap->y / 2;
   z = (point->z / ndmap->size) + ndmap->z / 2;
+  //printf("gpu - point->x : %f, ndmap->size : %f, ndmap->x : %d ,x : %d\n",point->x,ndmap->size,ndmap->x,x);
 
   /*clipping*/
   if ((x < 1 || x >= ndmap->x) || (y < 1 || y >= ndmap->y) || (z < 1 || z >= ndmap->z)){
     /* end */
+    //printf("error : func.cu:286\n");
   }else{
 
   /*select root ND*/
@@ -284,15 +320,21 @@ void add_point_map_cuda_func(NDMapPtr ndmap, int *NDs_num_dev, NDPtr NDs_dev, Po
       *ndp[i] = add_ND_cuda(NDs_num_dev,NDs_dev);
     if ((*ndp[i]) != 0)
       add_point_covariance_cuda(*ndp[i], point);
+      //update_covariance_cuda(*ndp[i]);
+      //printf("*ndp[%d] : %p",i,*ndp[i]);
   }
 
   }
+
+  //printf("&ndmap_dev->nd : %p",ndmap->nd);
+  //printf("&NDs_dev : %p",NDs_dev);
 }
 
-int add_point_map_cuda(NDMapPtr NDmap_dev, int *NDs_num_dev, NDPtr NDs_dev, Point *p){
+int add_point_map_cuda(NDMapPtr NDmap_dev, int *NDs_num_dev, NDPtr NDs_dev, PointPtr p){
 
   add_point_map_cuda_func<<<1,1>>>(NDmap_dev, NDs_num_dev, NDs_dev, *p);
-
+  //CHECK(cudaDeviceSynchronize(),__LINE__);
+  CHECK(cudaDeviceSynchronize(),__LINE__);
   return 0;
 }
 
@@ -833,6 +875,7 @@ int update_covariance_cuda(NDPtr nd)
   double a, b, c; /*for calcurate*/
   if (!nd->flag)
   { /*need calcurate?*/
+    printf("cuda updated!\n");
     /*means*/
     nd->mean.x = a = nd->m_x / nd->num;
     nd->mean.y = b = nd->m_y / nd->num;
@@ -859,6 +902,16 @@ int update_covariance_cuda(NDPtr nd)
   }
 
   return 1;
+}
+
+__global__
+void update_covariance_gpu_func(NDPtr *nd){
+  update_covariance_cuda(*nd);
+}
+
+void update_covariance_gpu(NDPtr *nd){
+  update_covariance_gpu_func<<<1,1>>>(nd);
+  CHECK(cudaDeviceSynchronize(),__LINE__);
 }
 
 __device__
@@ -913,7 +966,7 @@ __device__
 int get_ND_cuda_parallel(NDPtr NDs, NDMapPtr ndmap, PointPtr point, NDPtr *nd, int ndmode)
 {
   double x, y, z;
-  int i;
+
   NDPtr *ndp;
 
   /*mapping*/
@@ -946,14 +999,13 @@ int get_ND_cuda_parallel(NDPtr NDs, NDMapPtr ndmap, PointPtr point, NDPtr *nd, i
     {
       //if (!(*ndp[i])->flag)
       //  update_covariance_cuda(*ndp[i]);
-      nd = *ndp;
+      *nd = *ndp;
     }
     else
     {
-      nd = NDs;
+      *nd = NDs;
       // return 0;
     }
-  }
 
   return 1;
 }
@@ -1256,9 +1308,9 @@ void adjust3d_func(NDPtr NDs,NDMapPtr NDmap,PointPtr scanptr,PosturePtr pose, in
       {
         //	double e;
         *esum += calc_summand3d_cuda(
-          &p,
+        &p,
            nd[j],
-            *pose, g, hH,
+             g, hH,
              qd3, qdd3, 1.0);
         add_matrix6d_cuda(Hsumh, hH, Hsumh);
 
@@ -1285,68 +1337,22 @@ void adjust3d_func(NDPtr NDs,NDMapPtr NDmap,PointPtr scanptr,PosturePtr pose, in
 
 __global__
 void adjust3d_func_parallel(NDPtr NDs,NDMapPtr NDmap,PointPtr scanptr,PosturePtr pose, int num, double sc[3][3], double sc_d[3][3][3], double sc_dd[3][3][3][3],
-                   double dist, double E_THETA, double *esum, double *Hsumh_dev, double *gnum, double *gsum_dev,
-                   double x[ID], double y[ID], double z[ID], Point p[ID], double e[ID], double g[ID][6], double hH[ID][6][6], double qd3[ID][6][3], double qdd3[ID][6][6][3],
-                   int gnum[ID], NDPtr nd[ID])
+                   double dist, double E_THETA, double e[ID], double hH[ID][6][6], int gnum[ID], double g[ID][6],
+                   double x[ID], double y[ID], double z[ID], Point p[ID], double qd3[ID][6][3], double qdd3[ID][6][6][3], NDPtr nd[ID])
 {
-// カーネル呼び出しの前にやっておくこと
-// constant : pose, scanptr, E_THETA,
-// malloc(x,y,z,p,e,g,hH,qd3,qdd3,gnum,nd)
-// set_value(qd3,qdd3,gnum)
-//**
-// memcpy(e,g,hH,gnum)
-
-
-  int i;
-  int j = 0;
-  //double x,y,z;
   int m,k,n;
   //Point p;
   NDMapPtr nd_map;
-  //NDPtr nd[8];
-  //double *work;
-  //double qd3[6][3];
-  //double qdd3[6][6][3];
-  //double Hsumh[6][6], gsum[6];
 
-  unsigned int tid = thredIdx.x;
-  unsigned int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  unsigned int tid = threadIdx.x;
+  unsigned int id = blockIdx.x * blockDim.x + threadIdx.x;
 
-  //*esum = 0;
-  //*gnum = 0;
-  //zero_matrix6d_cuda(Hsumh);
-  //zero_matrix_cuda(gsum);
-
-/*
-  qd3[0][0] = 1;
-  qd3[0][1] = 0;
-  qd3[0][2] = 0;
-
-  qd3[1][0] = 0;
-  qd3[1][1] = 1;
-  qd3[1][2] = 0;
-
-  qd3[2][0] = 0;
-  qd3[2][1] = 0;
-  qd3[2][2] = 1;
-*//*
-  for (n = 0; n < 6; n++)
-  {
-    for (m = 0; m < 6; m++)
-    {
-      for (k = 0; k < 3; k++)
-      {
-        qdd3[n][m][k] = 0;
-      }
-    }
-  }
-*/
   // 境界チェック
   if(id >= num) return;
     //*���κ�ɸ�Ѵ��׻�
-    x[id] = scanptr[id]->x;
-    y[id] = scanptr[id]->y;
-    z[id] = scanptr[id]->z;
+    x[id] = (scanptr + id)->x;
+    y[id] = (scanptr + id)->y;
+    z[id] = (scanptr + id)->z;
 
     p[id].x = x[id] * sc[0][0] + y[id] * sc[0][1] + z[id] * sc[0][2] + pose->x;
     p[id].y = x[id] * sc[1][0] + y[id] * sc[1][1] + z[id] * sc[1][2] + pose->y;
@@ -1354,8 +1360,8 @@ void adjust3d_func_parallel(NDPtr NDs,NDMapPtr NDmap,PointPtr scanptr,PosturePtr
 
     nd_map = NDmap;
 
-    if (!get_ND_cuda_parallel(NDs, nd_map, &p[id], nd[id], 1))
-      continue;
+    if (!get_ND_cuda_parallel(NDs, nd_map, &p[id], &nd[id], 1)){
+      //continue;
 
     //*q�ΰ켡��ʬ(�Ѳ�������Τ�)
     //work = (double *)sc_d;
@@ -1363,11 +1369,7 @@ void adjust3d_func_parallel(NDPtr NDs,NDMapPtr NDmap,PointPtr scanptr,PosturePtr
     {
       for (k = 0; k < 3; k++)
       {
-        // qd3[txtytzabg][xyz]
-        //qd3[id][m + 3][k] = x[id] * (*work) + y[id] * (*(work + 1)) + z[id] * (*(work + 2));
         qd3[id][m + 3][k] = x[id] * sc_d[m][k][0] + y[id] * sc_d[m][k][1] + z[id] * sc_d[m][k][2];
-        // x*sc_d[m][k][0] + y*sc_d[m][k][1] + z*sc_d[m][k][2];
-        //work += 3;
       }
     }
 
@@ -1389,41 +1391,27 @@ void adjust3d_func_parallel(NDPtr NDs,NDMapPtr NDmap,PointPtr scanptr,PosturePtr
     //if (nd[id][j] && nd[id][j]->num > 10 && nd[id][j]->sign == 1)
     if (nd[id] && nd[id]->num > 10 && nd[id]->sign == 1)
     {
-        //	double e;
         e[id] = calc_summand3d_cuda_thread(&p[id],nd[id], g[id], hH[id], qd3[id], qdd3[id], 1.0);
-        //add_matrix6d_cuda(Hsumh, hH, Hsumh);
-
-        //	  dist =1;
-/*
-        gsum[0] += g[0];                //*nd[j]->w;
-        gsum[1] += g[1];                //*nd[j]->w;
-        gsum[2] += g[2] + pose->z * 0;  //*nd[j]->w;
-        gsum[3] += g[3];                //*nd[j]->w;
-        gsum[4] += g[4];                //+(pose->theta2-(0.0))*1;//*nd[j]->w;
-        gsum[5] += g[5];                //*nd[j]->w;
-*/
         gnum[id] = 1;  // nd[j]->w;
     }
+
+  }
 
   for(int stride = 1; stride < blockDim.x; stride *= 2){
     int index = 2 * stride * tid;
     if(index < blockDim.x){
-      idata[index] += idata[index + stride];
+      //idata[index] += idata[index + stride];
       e[index] += e[index + stride];
-      g[index] += g[index + stride];
-      hH[index] += hH[index + stride];
+      g[index][0] += g[index + stride][0];
+      g[index][1] += g[index + stride][1];
+      g[index][2] += g[index + stride][2];
+      g[index][3] += g[index + stride][3];
+      g[index][4] += g[index + stride][4];
+      g[index][5] += g[index + stride][5];
+      add_matrix6d_cuda(hH[index], hH[index + stride], hH[index]);
       gnum[index] += gnum[index + stride];
     }
     __syncthreads();
-  }
-
-  __syncthreads();
-
-  for(i=0;i<6;i++){
-    gsum_dev[i] = gsum[i];
-    for(j=0;j<6;j++){
-      Hsumh_dev[6*i + j] = Hsumh[i][j];
-    }
   }
 }
 
@@ -1527,38 +1515,38 @@ void set_sincos_cuda(double a, double b, double g, double sc[3][3][3])
 
 
 
-double adjust3d_cuda(NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan, PointPtr *scan_points_dev, int num, PosturePtr initial, int target, double E_THETA)
+double adjust3d_cuda(NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan, PointPtr scan_points_dev, int num, PosturePtr initial, int target, double E_THETA)
 {
   // aritoshi
   double *gsum_dev, *Hsumh_dev, *gnum_dev, *esum_dev,Hsumh_arrow[36];
-  cudaMalloc(&gsum_dev, 6 * sizeof(double));
-  cudaMalloc(&Hsumh_dev, 6 * 6 * sizeof(double));
-  cudaMalloc(&gnum_dev, sizeof(double));
-  cudaMalloc(&esum_dev, sizeof(double));
+  CHECK(cudaMalloc(&gsum_dev, 6 * sizeof(double)),__LINE__);
+  CHECK(cudaMalloc(&Hsumh_dev, 6 * 6 * sizeof(double)),__LINE__);
+  CHECK(cudaMalloc(&esum_dev, sizeof(double)),__LINE__);
+  CHECK(cudaMalloc(&gnum_dev, sizeof(double)),__LINE__);
 /*
   double zero = 0.0;
-  cudaMemcpy(gnum_dev,&zero,sizeof(double),cudaMemcpyHostToDevice);
-  cudaMemcpy(esum_dev,&zero,sizeof(double),cudaMemcpyHostToDevice);
+  CHECK(cudaMemcpy(gnum_dev,&zero,sizeof(double),cudaMemcpyHostToDevice),__LINE__);
+  CHECK(cudaMemcpy(esum_dev,&zero,sizeof(double),cudaMemcpyHostToDevice),__LINE__);
 */
   // double gsum[6], Hsum[6][6],Hsumh[6][6],Hinv[6][6],g[6],gd[6],ge[6][6],H[6][6],hH[6][6];
-  double gsum[6], Hsumh[6][6], Hinv[6][6], g[6], H[6][6], hH[6][6];
+  double gsum[6], Hsumh[6][6], Hinv[6][6], H[6][6];//, hH[6][6], g[6];
   // double sc[3][3],sc_d[3][3][3],sc_dd[3][3][3][3],sce[3][3][3];
   double sc[3][3], sc_d[3][3][3], sc_dd[3][3][3][3];
   // double *work,*work2,*work3;
-  double *work;
+  //double *work;
   double esum = 0, gnum = 0;
-  NDPtr nd[8];
-  NDMapPtr nd_map;
-  int i, j, n, m, k, layer;
-  double x, y, z;  //,sa,ca,sb,cb,sg,cg;
+  //NDPtr nd[8];
+  //NDMapPtr nd_map;
+  int i, j;
+  //double x, y, z;  //,sa,ca,sb,cb,sg,cg;
   PosturePtr pose;
   // Point p,pe[6],pd;
-  Point p;
+  //Point p;
   PointPtr scanptr;
   // int inc,count;
-  int inc;
-  int ndmode;
-  double dist, weight_total, weight_sum, weight_next;
+  //int inc;
+  //int ndmode;
+  double dist;//, weight_total, weight_sum, weight_next;
   dist = 1;
 
   //initialize
@@ -1607,16 +1595,16 @@ double adjust3d_cuda(NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan, PointPtr *sca
   }
 */
   scanptr = scan;
-  cudaMemcpy(*scan_points_dev, scanptr, num * sizeof(Point), cudaMemcpyHostToDevice);
+  CHECK(cudaMemcpy(scan_points_dev, scanptr, num * sizeof(Point), cudaMemcpyHostToDevice),__LINE__);
 
-  adjust3d_func<<<1,1>>>(NDs, NDmap_dev, *scan_points_dev, pose, num, sc, sc_d, sc_dd,
+  adjust3d_func<<<1,1>>>(NDs, NDmap_dev, scan_points_dev, pose, num, sc, sc_d, sc_dd,
                 dist, E_THETA, esum_dev, Hsumh_dev, gnum_dev, gsum_dev);
   cudaDeviceSynchronize();
 
-  cudaMemcpy(&esum,esum_dev,sizeof(double), cudaMemcpyDeviceToHost);
-  cudaMemcpy(gsum,gsum_dev, 6 * sizeof(double), cudaMemcpyDeviceToHost);
-  cudaMemcpy(&gnum,gnum_dev,sizeof(double), cudaMemcpyDeviceToHost);
-  cudaMemcpy(Hsumh_arrow,Hsumh_dev, 6 * 6 * sizeof(double), cudaMemcpyDeviceToHost);
+  CHECK(cudaMemcpy(&esum,esum_dev,sizeof(double), cudaMemcpyDeviceToHost),__LINE__);
+  CHECK(cudaMemcpy(gsum,gsum_dev, 6 * sizeof(double), cudaMemcpyDeviceToHost),__LINE__);
+  CHECK(cudaMemcpy(&gnum,gnum_dev,sizeof(double), cudaMemcpyDeviceToHost),__LINE__);
+  CHECK(cudaMemcpy(Hsumh_arrow,Hsumh_dev, 6 * 6 * sizeof(double), cudaMemcpyDeviceToHost),__LINE__);
 
   for(i=0;i<6;i++){
     for(j=0;j<6;j++){
@@ -1657,110 +1645,69 @@ double adjust3d_cuda(NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan, PointPtr *sca
   return esum;
 }
 
-double adjust3d_cuda_parallel(NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan, PointPtr *scan_points_dev, int num, PosturePtr initial, int target, double E_THETA)
+double adjust3d_cuda_parallel(int GRID,int BLOCK, NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan_points, PointPtr scan_points_dev, int num, PosturePtr initial, int target, double E_THETA)
 {
   // aritoshi
-  double *gsum_dev, *Hsumh_dev, *gnum_dev, *esum_dev,Hsumh_arrow[36];
-  cudaMalloc(&gsum_dev, 6 * sizeof(double));
-  cudaMalloc(&Hsumh_dev, 6 * 6 * sizeof(double));
-  cudaMalloc(&gnum_dev, sizeof(double));
-  cudaMalloc(&esum_dev, sizeof(double));
-/*
-  double zero = 0.0;
-  cudaMemcpy(gnum_dev,&zero,sizeof(double),cudaMemcpyHostToDevice);
-  cudaMemcpy(esum_dev,&zero,sizeof(double),cudaMemcpyHostToDevice);
-*/
-  // double gsum[6], Hsum[6][6],Hsumh[6][6],Hinv[6][6],g[6],gd[6],ge[6][6],H[6][6],hH[6][6];
-  double gsum[6], Hsumh[6][6], Hinv[6][6], g[6], H[6][6], hH[6][6];
-  // double sc[3][3],sc_d[3][3][3],sc_dd[3][3][3][3],sce[3][3][3];
-  double sc[3][3], sc_d[3][3][3], sc_dd[3][3][3][3];
-  // double *work,*work2,*work3;
-  double *work;
-  double esum = 0, gnum = 0;
-  NDPtr nd[8];
-  NDMapPtr nd_map;
-  int i, j, n, m, k, layer;
-  double x, y, z;  //,sa,ca,sb,cb,sg,cg;
-  PosturePtr pose;
-  // Point p,pe[6],pd;
-  Point p;
-  PointPtr scanptr;
-  // int inc,count;
-  int inc;
-  int ndmode;
-  double dist, weight_total, weight_sum, weight_next;
-  dist = 1;
+  dim3 block(BLOCK);
+  dim3 grid(GRID);
+std::cout << "adjust3d_cuda_parallel" << std::endl;
+// host setup
+double gsum[6], Hsumh[6][6], Hinv[6][6], H[6][6];
+double sc[3][3], sc_d[3][3][3], sc_dd[3][3][3][3];
+double esum = 0, gnum = 0;
+PosturePtr pose;
+double dist = 1;
 
-  //initialize
-  gsum[0] = 0;
-  gsum[1] = 0;
-  gsum[2] = 0;
-  gsum[3] = 0;
-  gsum[4] = 0;
-  gsum[5] = 0;
-  j = 0;
+int gnum_init[ID];
+double qd3_init[ID][6][3];
+double qdd3_init[ID][6][6][3];
+
+double e_h[BLOCK], hH_h[BLOCK][6][6], g_h[BLOCK][6];
+int gnum_h[BLOCK];
+
+//initialize
+gsum[0] = 0;
+gsum[1] = 0;
+gsum[2] = 0;
+gsum[3] = 0;
+gsum[4] = 0;
+gsum[5] = 0;
 //  zero_matrix6d(Hsum);
-  zero_matrix6d_cuda(Hsumh);
-  pose = initial;
+zero_matrix6d_cuda(Hsumh);
+pose = initial;
 
-  //�Ѵ������1����ʬʬ��ޤ�ˤβ�žʬ��׻�
-  set_sincos_cuda(pose->theta, pose->theta2, pose->theta3, sc_d);
-  set_sincos_cuda(pose->theta + E_THETA, pose->theta2, pose->theta3, sc_dd[0]);
-  set_sincos_cuda(pose->theta, pose->theta2 + E_THETA, pose->theta3, sc_dd[1]);
-  set_sincos_cuda(pose->theta, pose->theta2, pose->theta3 + E_THETA, sc_dd[2]);
+//�Ѵ������1����ʬʬ��ޤ�ˤβ�žʬ��׻�
+set_sincos_cuda(pose->theta, pose->theta2, pose->theta3, sc_d);
+set_sincos_cuda(pose->theta + E_THETA, pose->theta2, pose->theta3, sc_dd[0]);
+set_sincos_cuda(pose->theta, pose->theta2 + E_THETA, pose->theta3, sc_dd[1]);
+set_sincos_cuda(pose->theta, pose->theta2, pose->theta3 + E_THETA, sc_dd[2]);
 
-  //��ɸ�Ѵ���
-  set_sincos2_cuda(pose->theta, pose->theta2, pose->theta3, sc);
+//��ɸ�Ѵ���
+set_sincos2_cuda(pose->theta, pose->theta2, pose->theta3, sc);
 
-  //�켡��ʬ������Ѳ����ʤ���ʬ�η׻�
-/*
-  qd3[0][0] = 1;
-  qd3[0][1] = 0;
-  qd3[0][2] = 0;
+// device setup
+  int s,t,u,v;
 
-  qd3[1][0] = 0;
-  qd3[1][1] = 1;
-  qd3[1][2] = 0;
+  int *gnum_dev;
+  double *x_dev, *y_dev, *z_dev, *e_dev;
+  double (*g_dev)[6];
+  double (*hH_dev)[6][6];
+  double (*qd3_dev)[6][3];
+  double (*qdd3_dev)[6][6][3];
+  Point *p_dev;
+  NDPtr *nd_dev;
 
-  qd3[2][0] = 0;
-  qd3[2][1] = 0;
-  qd3[2][2] = 1;
-  for (n = 0; n < 6; n++)
-  {
-    for (m = 0; m < 6; m++)
-    {
-      for (k = 0; k < 3; k++)
-      {
-        qdd3[n][m][k] = 0;
-      }
-    }
-  }
-*/
-  scanptr = scan;
-  cudaMemcpy(*scan_points_dev, scanptr, num * sizeof(Point), cudaMemcpyHostToDevice);
-
-double *x, *y, *z, *e;
-double (*g)[6];
-double (*hH)[6][6];
-double (*qd3)[6][3];
-double (*qdd3)[6][6][3];
-Point *p;
-int *gnum;
-NDPtr *nd;
-
-int s,t,u,v;
-
-  cudaMalloc(&x,ID * sizeof(double));
-  cudaMalloc(&y,ID * sizeof(double));
-  cudaMalloc(&z,ID * sizeof(double));
-  cudaMalloc(&p,ID * sizeof(Point));
-  cudaMalloc(&e,ID * sizeof(double));
-  cudaMalloc(&g,ID * sizeof(double) * 6);
-  cudaMalloc(&hH,ID * sizeof(double) * 6 * 6);
-  cudaMalloc(&qd3,ID * sizeof(double) * 6 * 3);
-  cudaMalloc(&qdd3,ID * sizeof(double) * 6 * 6 * 3);
-  cudaMalloc(&gnum,ID * sizeof(int));
-  cudaMalloc(&nd,ID * sizeof(NDPtr));
+  CHECK(cudaMalloc(&gnum_dev, ID * sizeof(int)),__LINE__);
+  CHECK(cudaMalloc(&x_dev,ID * sizeof(double)),__LINE__);
+  CHECK(cudaMalloc(&y_dev,ID * sizeof(double)),__LINE__);
+  CHECK(cudaMalloc(&z_dev,ID * sizeof(double)),__LINE__);
+  CHECK(cudaMalloc(&p_dev,ID * sizeof(Point)),__LINE__);
+  CHECK(cudaMalloc(&e_dev,ID * sizeof(double)),__LINE__);
+  CHECK(cudaMalloc(&g_dev,ID * sizeof(double) * 6),__LINE__);
+  CHECK(cudaMalloc(&hH_dev,ID * sizeof(double) * 6 * 6),__LINE__);
+  CHECK(cudaMalloc(&qd3_dev,ID * sizeof(double) * 6 * 3),__LINE__);
+  CHECK(cudaMalloc(&qdd3_dev,ID * sizeof(double) * 6 * 6 * 3),__LINE__);
+  CHECK(cudaMalloc(&nd_dev,ID * sizeof(NDPtr)),__LINE__);
 
   for(s = 0; s < ID; s++){
     qd3_init[s][0][0] = 1;
@@ -1787,28 +1734,32 @@ int s,t,u,v;
       }
     }
   }
+  CHECK(cudaMemcpy(scan_points_dev, scan_points, num * sizeof(Point), cudaMemcpyHostToDevice),__LINE__);
+  CHECK(cudaMemcpy(qd3_dev,qd3_init,sizeof(qd3_init),cudaMemcpyHostToDevice),__LINE__);
+  CHECK(cudaMemcpy(qdd3_dev,qdd3_init,sizeof(qdd3_init),cudaMemcpyHostToDevice),__LINE__);
+  CHECK(cudaMemcpy(gnum_dev,gnum_init,sizeof(gnum_init),cudaMemcpyHostToDevice),__LINE__);
 
-  cudaMemcpy(&qd3,qd3_init,sizeof(qd3_init),cudaMemcpyHostToDevice);
-  cudaMemcpy(&qdd3,qdd3_init,sizeof(qdd3_init),cudaMemcpyHostToDevice);
-  cudaMemcpy(&gnum,gnum_init,sizeof(gnum_init),cudaMemcpyHostToDevice);
+  adjust3d_func_parallel<<<block,grid>>>(NDs, NDmap_dev, scan_points_dev, pose, num, sc, sc_d, sc_dd,
+                dist, E_THETA, e_dev, hH_dev, gnum_dev, g_dev, x_dev, y_dev, z_dev, p_dev,
+                qd3_dev, qdd3_dev, nd_dev);
 
+  CHECK(cudaDeviceSynchronize(),__LINE__);
 
-  adjust3d_func_parallel<<<1,1>>>(NDs, NDmap_dev, *scan_points_dev, pose, num, sc, sc_d, sc_dd,
-                dist, E_THETA, esum_dev, Hsumh_dev, gnum_dev, gsum_dev, x, y, z, p, e, g, hH,
-                qd3, qdd3, gnum, nd);
+  CHECK(cudaMemcpy(gnum_h, gnum_dev, sizeof(int) * BLOCK, cudaMemcpyDeviceToHost),__LINE__);
+  CHECK(cudaMemcpy(e_h, e_dev, sizeof(double) * BLOCK, cudaMemcpyDeviceToHost),__LINE__);
+  CHECK(cudaMemcpy(g_h, g_dev, 6 * sizeof(double)  * BLOCK, cudaMemcpyDeviceToHost),__LINE__);
+  CHECK(cudaMemcpy(hH_h, hH_dev, 6 * 6 * sizeof(double)  * BLOCK, cudaMemcpyDeviceToHost),__LINE__);
 
-
-  cudaDeviceSynchronize();
-
-  cudaMemcpy(&esum,esum_dev,sizeof(double), cudaMemcpyDeviceToHost);
-  cudaMemcpy(gsum,gsum_dev, 6 * sizeof(double), cudaMemcpyDeviceToHost);
-  cudaMemcpy(&gnum,gnum_dev,sizeof(double), cudaMemcpyDeviceToHost);
-  cudaMemcpy(Hsumh_arrow,Hsumh_dev, 6 * 6 * sizeof(double), cudaMemcpyDeviceToHost);
-
-  for(i=0;i<6;i++){
-    for(j=0;j<6;j++){
-      Hsumh[i][j] = Hsumh_arrow[6*i + j];
-    }
+  int w;
+  for(w=0;w < BLOCK;w++){
+    add_matrix6d_cuda(Hsumh, hH_h[w], Hsumh);
+    gsum[0] += g_h[w][0];
+    gsum[1] += g_h[w][1];
+    gsum[2] += g_h[w][2] + pose->z * 0;
+    gsum[3] += g_h[w][3];
+    gsum[4] += g_h[w][4];
+    gsum[5] += g_h[w][5];
+    gnum += (double)gnum_h[w];
   }
 
   if (gnum > 1)
@@ -1842,91 +1793,229 @@ int s,t,u,v;
                      Hinv[5][4] * gsum[4] + Hinv[5][5] * gsum[5]);
   }
 
-  cudaFree();
-  cudaFree();
-  cudaFree();
-  cudaFree();
-  cudaFree();
-  cudaFree();
-  cudaFree();
-  cudaFree();
-  cudaFree();
-  cudaFree();
-  cudaFree();
+  cudaFree(x_dev);
+  cudaFree(y_dev);
+  cudaFree(z_dev);
+  cudaFree(e_dev);
+  cudaFree(g_dev);
+  cudaFree(gnum_dev);
+  cudaFree(hH_dev);
+  cudaFree(p_dev);
+  cudaFree(qd3_dev);
+  cudaFree(qdd3_dev);
+  cudaFree(nd_dev);
 
   return esum;
 }
 
 void initialize_scan_points_cuda(PointPtr *scan_points_dev,int SCAN_POINTS_NUM){
-  cudaMalloc(scan_points_dev, SCAN_POINTS_NUM * sizeof(Point));
+  CHECK(cudaMalloc(&(*scan_points_dev), SCAN_POINTS_NUM * sizeof(Point)),__LINE__);
+  CHECK(cudaDeviceSynchronize(),__LINE__);
 }
 
-int cmpmatrix(double *a, double *b,int s, int t){
+int cmpmatrix33(double a[3][3], double b[3][3]){
   int i,j,ans = 1;
-  for(i = 0; i < s; i++){
-    for(j = 0; j < t; j++){
-      ans *= (a[i][j] == b[i][j])?1:0;
+  for(i = 0; i < 3; i++){
+    for(j = 0; j < 3; j++){
+      ans *= (fabs(a[i][j] - b[i][j]) < THREASH)?1:0;
+      //printf("fabs(a[i][j] - b[i][j]) : %f, (fabs(a[i][j] - b[i][j]) < THREASH) : %d\n",fabs(a[i][j] - b[i][j]),(fabs(a[i][j] - b[i][j]) < THREASH));
     }
   }
-
+//printf("cmp33 : %d",ans);
   return ans;
+}
+
+int cmpmatrix31(double a[3], double b[3]){
+  int i,ans = 1;
+  for(i = 0; i < 3; i++){
+      ans *= (fabs(a[i] - b[i]) < THREASH)?1:0;
+      //printf("fabs(a[i] - b[i]) : %f, (fabs(a[i] - b[i]) < THREASH) : %d\n",fabs(a[i] - b[i]),(fabs(a[i] - b[i]) < THREASH));
+  }
+//printf("cmp31 : %d",ans);
+  return ans;
+}
+
+void printnd(NDPtr a, NDPtr b,int loop){
+  std::cout << "-loop " << loop << "--------" << std::endl;
+  std::cout << "dev : " << a->mean.x << " , " << a->mean.y << " , " << a->mean.z << "\n"
+   << " , " << a->covariance[0][0] << " , " << a->covariance[0][1] << " , " << a->covariance[0][2] << "\n"
+   << " , " << a->covariance[1][0] << " , " << a->covariance[1][1] << " , " << a->covariance[1][2] << "\n"
+   << " , " << a->covariance[2][0] << " , " << a->covariance[2][1] << " , " << a->covariance[2][2] << "\n"
+   << " , " << a->inv_covariance[0][0] << " , " << a->inv_covariance[0][1] << " , " << a->inv_covariance[0][2] << "\n"
+   << " , " << a->inv_covariance[1][0] << " , " << a->inv_covariance[1][1] << " , " << a->inv_covariance[1][2] << "\n"
+   << " , " << a->inv_covariance[2][0] << " , " << a->inv_covariance[2][1] << " , " << a->inv_covariance[2][2] << "\n"
+   << " , " << a->flag << " , " << a->sign << " , " << a->num << " , " << a->m_x << " , " << a->m_y << " , " << a->m_z  << "\n"
+   << " , " << a->c_xx << " , " << a->c_yy << " , " << a->c_zz  << "\n"
+   << " , " << a->c_xy << " , " << a->c_yz << " , " << a->c_zx << "\n"
+   << " , " << a->x << " , " << a->y << " , " << a->z << " , " << a->w << "\n"
+   << " , " << a->l[0] << " , " << a->l[1] << " , " << a->l[2] << "\n"
+   << " , " << a->is_source << std::endl;
+
+   std::cout << "host : " << b->mean.x << " , " << b->mean.y << " , " << b->mean.z << "\n"
+    << " , " << b->covariance[0][0] << " , " << b->covariance[0][1] << " , " << b->covariance[0][2] << "\n"
+    << " , " << b->covariance[1][0] << " , " << b->covariance[1][1] << " , " << b->covariance[1][2] << "\n"
+    << " , " << b->covariance[2][0] << " , " << b->covariance[2][1] << " , " << b->covariance[2][2] << "\n"
+    << " , " << b->inv_covariance[0][0] << " , " << b->inv_covariance[0][1] << " , " << b->inv_covariance[0][2] << "\n"
+    << " , " << b->inv_covariance[1][0] << " , " << b->inv_covariance[1][1] << " , " << b->inv_covariance[1][2] << "\n"
+    << " , " << b->inv_covariance[2][0] << " , " << b->inv_covariance[2][1] << " , " << b->inv_covariance[2][2] << "\n"
+    << " , " << b->flag << " , " << b->sign << " , " << b->num << " , " << b->m_x << " , " << b->m_y << " , " << b->m_z  << "\n"
+    << " , " << b->c_xx << " , " << b->c_yy << " , " << b->c_zz  << "\n"
+    << " , " << b->c_xy << " , " << b->c_yz << " , " << b->c_zx << "\n"
+    << " , " << b->x << " , " << b->y << " , " << b->z << " , " << b->w << "\n"
+    << " , " << b->l[0] << " , " << b->l[1] << " , " << b->l[2] << "\n"
+    << " , " << b->is_source << std::endl;
+
 }
 
 int cmpnd(NDPtr a, NDPtr b){
   int ans;
-  if(a->mean.x == b->mean.x && a->mean.y == b->mean.y && a->mean.z == b->mean.z &&
-     cmpmatrix(a->covariance,b->covariance,3,3) && cmpmatrix(a->inv_covariance,b->inv_covariance,3,3) &&
-     a->flag == b->flag && a->sign == b->sign && a->num == b->num &&
-     a->m_x == b->m_x && a->m_y == b->m_y && a->m_z == b->m_z &&
-     a->c_xx == b->c_xx && a->c_yy == b->c_yy && a->c_zz == b->c_zz &&
-     a->c_xy == b->c_xy && a->c_yz == b->c_yz && a->c_zx == b->c_zx &&
-     a->x == b->x && a->y == b->y && a->z == b->z && a->w == b->w &&
-     cmpmatrix(a->l,b->l,3,1) && a->is_source == b->is_source){
+  if(fabs(a->mean.x - b->mean.x) < THREASH &&
+     fabs(a->mean.y - b->mean.y) < THREASH &&
+     fabs(a->mean.z - b->mean.z) < THREASH &&
+     cmpmatrix33(a->covariance,b->covariance) &&
+     cmpmatrix33(a->inv_covariance,b->inv_covariance) &&
+     fabs(a->flag - b->flag) < THREASH &&
+     fabs(a->sign - b->sign) < THREASH &&
+     fabs(a->num - b->num) < THREASH &&
+     fabs(a->m_x - b->m_x) < THREASH &&
+     fabs(a->m_y - b->m_y) < THREASH &&
+     fabs(a->m_z - b->m_z) < THREASH &&
+     fabs(a->c_xx - b->c_xx) < THREASH &&
+     fabs(a->c_yy - b->c_yy) < THREASH &&
+     fabs(a->c_zz - b->c_zz) < THREASH &&
+     fabs(a->c_xy - b->c_xy) < THREASH &&
+     fabs(a->c_yz - b->c_yz) < THREASH &&
+     fabs(a->c_zx - b->c_zx) < THREASH &&
+     fabs(a->x - b->x) < THREASH &&
+     fabs(a->y - b->y) < THREASH &&
+     fabs(a->z - b->z) < THREASH &&
+     fabs(a->w - b->w) < THREASH &&
+     cmpmatrix31(a->l,b->l) &&
+     fabs(a->is_source - b->is_source) < THREASH){
        ans = 1;
+       printf("ans : 1\n");
      }else{
        ans = 0;
+        printf("ans : 0\n");
+/*
+       printf("fabs(a->mean.x - b->mean.x) : %f\n",fabs(a->mean.x - b->mean.x));
+       printf("fabs(a->mean.y - b->mean.y) : %f\n",fabs(a->mean.y - b->mean.y));
+       printf("fabs(a->mean.z - b->mean.z) : %f\n",fabs(a->mean.z - b->mean.z));
+       printf("fabs(a->c_xx - b->c_xx) : %f\n",fabs(a->c_xx - b->c_xx));
+       printf("fabs(a->c_yy - b->c_yy) : %f\n",fabs(a->c_yy - b->c_yy));
+       printf("fabs(a->c_zz - b->c_zz) : %f\n",fabs(a->c_zz - b->c_zz));
+       printf("fabs(a->c_xy - b->c_xy) : %f\n",fabs(a->c_xy - b->c_xy));
+       printf("fabs(a->c_yz - b->c_yz) : %f\n",fabs(a->c_yz - b->c_yz));
+       printf("fabs(a->c_zx - b->c_zx : %f\n",fabs(a->c_zx - b->c_zx));
+       printf("fabs(a->x - b->x) : %f\n",fabs(a->x - b->x));
+       printf("fabs(a->y - b->y) : %f\n",fabs(a->y - b->y));
+       printf("fabs(a->z - b->z) : %f\n",fabs(a->z - b->z));
+       printf("fabs(a->w - b->w) : %f\n",fabs(a->w - b->w));
+*/
+       printf("fabs(a->mean.x - b->mean.x)  < THREASH : %d\n",fabs(a->mean.x - b->mean.x) < THREASH );
+       printf("fabs(a->mean.y - b->mean.y)  < THREASH : %d\n",fabs(a->mean.y - b->mean.y) < THREASH );
+       printf("fabs(a->mean.z - b->mean.z)  < THREASH : %d\n",fabs(a->mean.z - b->mean.z) < THREASH );
+       printf("cmpmatrix33(a->covariance,b->covariance) : %d\n",cmpmatrix33(a->covariance,b->covariance));
+       printf("cmpmatrix33(a->inv_covariance,b->inv_covariance) : %d\n",cmpmatrix33(a->inv_covariance,b->inv_covariance));
+       printf("fabs(a->flag - b->flag) < THREASH : %d\n",fabs(a->flag - b->flag) < THREASH);
+       printf("fabs(a->sign - b->sign) < THREASH : %d\n",fabs(a->sign - b->sign) < THREASH);
+       printf("fabs(a->num - b->num) < THREASH : %d\n",fabs(a->num - b->num) < THREASH);
+       printf("fabs(a->m_x - b->m_x) < THREASH : %d\n",fabs(a->m_x - b->m_x) < THREASH);
+       printf("fabs(a->m_y - b->m_y) < THREASH : %d\n",fabs(a->m_y - b->m_y) < THREASH);
+       printf("fabs(a->m_z - b->m_z) < THREASH : %d\n",fabs(a->m_z - b->m_z) < THREASH);
+       printf("fabs(a->c_xx - b->c_xx)  < THREASH : %d\n",fabs(a->c_xx - b->c_xx) < THREASH );
+       printf("fabs(a->c_yy - b->c_yy)  < THREASH : %d\n",fabs(a->c_yy - b->c_yy) < THREASH );
+       printf("fabs(a->c_zz - b->c_zz)  < THREASH : %d\n",fabs(a->c_zz - b->c_zz) < THREASH );
+       printf("fabs(a->c_xy - b->c_xy)  < THREASH : %d\n",fabs(a->c_xy - b->c_xy) < THREASH );
+       printf("fabs(a->c_yz - b->c_yz)  < THREASH : %d\n",fabs(a->c_yz - b->c_yz) < THREASH );
+       printf("fabs(a->c_zx - b->c_zx  < THREASH : %d\n",fabs(a->c_zx - b->c_zx) < THREASH );
+       printf("fabs(a->x - b->x)  < THREASH : %d\n",fabs(a->x - b->x) < THREASH );
+       printf("fabs(a->y - b->y)  < THREASH : %d\n",fabs(a->y - b->y) < THREASH );
+       printf("fabs(a->z - b->z)  < THREASH : %d\n",fabs(a->z - b->z) < THREASH );
+       printf("fabs(a->w - b->w)  < THREASH : %d\n",fabs(a->w - b->w) < THREASH );
+       printf("cmpmatrix31(a->l,b->l) : %d\n",cmpmatrix31(a->l,b->l));
+       printf("fabs(a->is_source - b->is_source) < THREASH : %d\n",fabs(a->is_source - b->is_source) < THREASH);
+       //printf("\n",);
+       //printf("\n",);
+       //printf("\n",);
+       //printf("\n",);
+       //printf("\n",);
+       //printf("\n",);
+       //printf("\n",);
+       //printf("\n",);
      }
 
   return ans;
 }
 
-int Test_NDmap(NDMapPtr NDmap,NDMapPtr NDmap_dev,NDPtr *NDs_dev_ptr, int **NDs_num_dev_ptr,
-               NDPtr **nd_dev_ptr, NDMapPtr *ndmap_dev_ptr,
+int Test_NDmap(NDMapPtr NDmap,NDMapPtr NDmap_dev,NDPtr NDs,NDPtr NDs_dev_ptr, int *NDs_num_dev_ptr, int NDs_num,
+               NDPtr *nd_dev_ptr,
                double g_map_cellsize, int g_map_x, int g_map_y, int g_map_z){
-  int map,nds,ans;
-  NDMap ndmap_dev,a,b;
-  cudaMemcpy(&ndmap_dev, NDmap_dev, sizeof(NDMap), cudaMemcpyDeviceToHost);
-  if(NDMap->x == ndmap.x && NDMap->y == ndmap.y && NDMap->z == ndmap.z &&
-     NDMap->to_x == ndmap.to_x && NDMap->to_y == ndmap.to_y && NDMap->to_z == ndmap.to_z &&
-     NDMap->size == ndmap.size){
+  int map[6],nds = 0,ans;
+  NDMap ndmap_dev;
+  CHECK(cudaMemcpy(&ndmap_dev, NDmap_dev, sizeof(NDMap), cudaMemcpyDeviceToHost),__LINE__);
+
+std::cout << "1" << std::endl;
+std::cout << "NDmap_dev address(Test) : " << NDmap_dev <<  std::endl;
+// まずはマップのメンバ変数が合ってるか確認
+/*
+  if((NDmap->x == ndmap_dev.x) &&
+      NDmap->y == ndmap_dev.y &&
+      NDmap->z == ndmap_dev.z &&
+      NDmap->to_x == ndmap_dev.to_x &&
+      NDmap->to_y == ndmap_dev.to_y &&
+      NDmap->size == ndmap_dev.size){
     map = 0;
   }else{
     map = 1;
   }
-
-  NDPtr *nd;
-  nd = (NDPtr *)malloc(NDMap->x * NDMap->y * NDMap->z * sizeof(NDPtr));
-  cudaMemcpy(nd, ndmap.nd, NDMap->x * NDMap->y * NDMap->z * sizeof(NDPtr), cudaMemcpyDeviceToHost);
-
-  int i,m;
-  m = NDMap->x * NDMap->y * NDMap->z;
-  for(i = 0; i < m; i++){
-    if(!cmpnd(nd[m],NDMap->nd[m])){
+*/
+map[0] = 0; map[1] = 0; map[2] = 0; map[3] = 0; map[4] = 0; map[5] = 0;
+    if(NDmap->x == ndmap_dev.x) map[0] = 1;
+    if(NDmap->y == ndmap_dev.y) map[1] = 1;
+    if(NDmap->z == ndmap_dev.z) map[2] = 1;
+    if(NDmap->to_x == ndmap_dev.to_x) map[3] = 1;
+    if(NDmap->to_y == ndmap_dev.to_y) map[4] = 1;
+    if(NDmap->size == ndmap_dev.size) map[5] = 1;
+std::cout << "------" << std::endl;
+std::cout << NDmap->x << " " << NDmap->y << " " << NDmap->z << " " << NDmap->to_x << " " << NDmap->to_y << " " << NDmap->size << std::endl;
+std::cout << "------" << std::endl;
+std::cout << ndmap_dev.x << " " << ndmap_dev.y << " " << ndmap_dev.z << " " << ndmap_dev.to_x << " " << ndmap_dev.to_y << " " << ndmap_dev.size << std::endl;
+std::cout << "map : " << map[0] << map[1] << map[2] << map[3] << map[4] << map[5] << std::endl;
+std::cout << "2" << std::endl;
+// 次に、マップに登録されたNDマップの中身が等しいか確認
+  NDPtr nd;
+  nd = (NDPtr)malloc(sizeof(NormalDistribution) * MAX_ND_NUM);
+  CHECK(cudaMemcpy(nd, NDs_dev_ptr,sizeof(NormalDistribution) * MAX_ND_NUM, cudaMemcpyDeviceToHost),__LINE__);
+std::cout << "3" << std::endl;
+  int i;
+  for(i = 0; i < NDs_num; i++){
+    // 1-> OK ,0 -> NG
+    if(i<5){
+      printnd(&nd[i],&NDs[i],i);
+    }
+    if(!cmpnd(&nd[i],&NDs[i])){
       nds++;
     }
   }
 
-  ans = map + nds;
-
+ int NDs_num_h;
+ CHECK(cudaMemcpy(&NDs_num_h,NDs_num_dev_ptr,sizeof(int),cudaMemcpyDeviceToHost),__LINE__);
+std::cout << "NDs_num_dev : " << NDs_num_h << std::endl;
+std::cout << "i   : " << i << std::endl;
+std::cout << "nds : " << nds << std::endl;
+std::cout << "4" << std::endl;
+  ans = nds;
+std::cout << "5" << std::endl;
   free(nd);
   // 0-> true
   return ans;
 }
 
-void free_procedure(NDPtr *NDs_dev_ptr, int **NDs_num_dev_ptr, NDPtr **nd_dev_ptr, NDMapPtr *ndmap_dev_ptr, PointPtr *scan_points_dev){
-  cudaFree(*NDs_dev_ptr);
-  cudaFree(*NDs_num_dev_ptr);
-  cudaFree(*nd_dev_ptr);
-  cudaFree(*ndmap_dev_ptr);
-  cudaFree(*scan_points_dev);
+void free_procedure(NDPtr NDs_dev_ptr, int *NDs_num_dev_ptr, NDPtr *nd_dev_ptr, NDMapPtr ndmap_dev_ptr, PointPtr scan_points_dev){
+  cudaFree(NDs_dev_ptr);
+  cudaFree(NDs_num_dev_ptr);
+  cudaFree(nd_dev_ptr);
+  cudaFree(ndmap_dev_ptr);
+  cudaFree(scan_points_dev);
 }

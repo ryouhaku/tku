@@ -234,41 +234,9 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
     }
   }
 
-<<<<<<< HEAD
-//#if WEIGHTED_SELECT
-#if 0
-  if (_downsampler_num == 0)
-  {
-    switch (target)
-    {
-      case 3:
-        inc = 1;
-        ndmode = 0;
-        break;
-      case 2:
-        inc = 500;
-        ndmode = 1;
-        break;
-      case 1:
-        inc = 5000;
-        ndmode = 0;
-        break;
-      default:
-        inc = 5000;
-        ndmode = 0;
-        break;
-    }
-  }
-#endif
-
   // using voxel grid filter
   switch (target)
   {
-=======
-  // using voxel grid filter
-  switch (target)
-  {
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
     case 3:
       inc = 1;
       ndmode = 0;
@@ -291,157 +259,6 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
 
   scanptr = scan;
 
-<<<<<<< HEAD
-  //#if WEIGHTED_SELECT
-#if 0
-  if (_downsampler_num == 0)
-  {
-    weight_total = scan_points_totalweight;
-    ;
-    weight_next = 0;
-    weight_sum = 0;
-
-    //  FILE *point_fp;
-    // point_fp=fopen("/tmp/range","w");
-    for (i = 0; i < num; i++)
-    {
-      weight_sum += scan_points_weight[i];
-      if (weight_sum < weight_next)
-      {
-        scanptr++;
-        continue;
-      }
-
-      x = scanptr->x;
-      y = scanptr->y;
-      z = scanptr->z;
-      //    fprintf(point_fp,"%f %f %f \n",x,y,z);
-
-      scanptr++;
-      weight_next += weight_total / (double)inc;  // 1000;
-      dist = 1;
-
-      p.x = x * sc[0][0] + y * sc[0][1] + z * sc[0][2] + pose->x;
-      p.y = x * sc[1][0] + y * sc[1][1] + z * sc[1][2] + pose->y;
-      p.z = x * sc[2][0] + y * sc[2][1] + z * sc[2][2] + pose->z;
-
-      if (ndmode == 1)
-        layer = 1;  // layer_select;
-      if (ndmode == 0)
-        layer = 0;  // layer_select;
-      nd_map = NDmap;
-
-      while (layer > 0)
-      {
-        if (nd_map->next)
-          nd_map = nd_map->next;
-        layer--;
-      }
-
-      if (!get_ND(nd_map, &p, nd, target))
-        continue;
-
-      work = (double *)sc_d;
-      for (m = 0; m < 3; m++)
-      {
-        for (k = 0; k < 3; k++)
-        {
-          // qd3[txtytzabg][xyz]
-          qd3[m + 3][k] = x * (*work) + y * (*(work + 1)) + z * (*(work + 2));
-          // x*sc_d[m][k][0] + y*sc_d[m][k][1] + z*sc_d[m][k][2];
-          work += 3;
-        }
-      }
-
-      work = (double *)sc_dd;
-      for (n = 0; n < 3; n++)
-      {
-        for (m = 0; m < 3; m++)
-        {
-          for (k = 0; k < 3; k++)
-          {
-            qdd3[n + 3][m + 3][k] = (*work * x + *(work + 1) * y + *(work + 2) * z - qd3[m + 3][k]) / E_THETA;
-            work += 3;
-          }
-        }
-      }
-
-
-      if (nd[j])
-      {
-        if (nd[j]->num > 10 && nd[j]->sign == 1)
-        {
-          //	double e;
-          esum += calc_summand3d(&p, nd[j], pose, g, hH, qd3, dist);
-          add_matrix6d(Hsumh, hH, Hsumh);
-
-          //	  dist =1;
-          gsum[0] += g[0];                //*nd[j]->w;
-          gsum[1] += g[1];                //*nd[j]->w;
-          gsum[2] += g[2] + pose->z * 0;  //*nd[j]->w;
-          gsum[3] += g[3];                //*nd[j]->w;
-          gsum[4] += g[4];                //+(pose->theta2-(0.0))*1;//*nd[j]->w;
-          gsum[5] += g[5];                //*nd[j]->w;
-          gnum += 1;                      // nd[j]->w;
-        }
-      }
-    }
-  }
-#endif
-
-  // using voxel grid filter
-  for (i = 0; i < num; i += inc)
-  {
-    x = scanptr->x;
-    y = scanptr->y;
-    z = scanptr->z;
-    dist = 1;
-    scanptr += inc;
-
-    p.x = x * sc[0][0] + y * sc[0][1] + z * sc[0][2] + pose->x;
-    p.y = x * sc[1][0] + y * sc[1][1] + z * sc[1][2] + pose->y;
-    p.z = x * sc[2][0] + y * sc[2][1] + z * sc[2][2] + pose->z;
-
-    if (ndmode == 1)
-      layer = 1;  // layer_select;
-    if (ndmode == 0)
-      layer = 0;  // layer_select;
-    nd_map = NDmap;
-
-    while (layer > 0)
-    {
-      if (nd_map->next)
-        nd_map = nd_map->next;
-      layer--;
-    }
-
-
-    if (!get_ND(nd_map, &p, nd, target))
-      continue;
-
-    work = (double *)sc_d;
-    for (m = 0; m < 3; m++)
-    {
-      for (k = 0; k < 3; k++)
-      {
-        // qd3[txtytzabg][xyz]
-        qd3[m + 3][k] = x * (*work) + y * (*(work + 1)) + z * (*(work + 2));
-        // x*sc_d[m][k][0] + y*sc_d[m][k][1] + z*sc_d[m][k][2];
-        work += 3;
-      }
-    }
-
-    work = (double *)sc_dd;
-    for (n = 0; n < 3; n++) {
-      for (m = 0; m < 3; m++) {
-        for (k = 0; k < 3; k++) {
-          qdd3[n + 3][m + 3][k] = (*work * x + *(work + 1) * y + *(work + 2) * z - qd3[m + 3][k]) / E_THETA;
-          work += 3;
-        }
-      }
-    }
-
-=======
   // case of voxel grid filter used
   for (i = 0; i < num; i += inc)
   {
@@ -492,12 +309,10 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
       }
     }
 
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
     if (nd[j])
     {
       if (nd[j]->num > 10 && nd[j]->sign == 1)
       {
-<<<<<<< HEAD
         //	double e;
         esum += calc_summand3d(&p, nd[j], pose, g, hH, qd3, dist);
         add_matrix6d(Hsumh, hH, Hsumh);
@@ -510,24 +325,6 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
         gsum[4] += g[4];                //+(pose->theta2-(0.0))*1;//*nd[j]->w;
         gsum[5] += g[5];                //*nd[j]->w;
         gnum += 1;                      // nd[j]->w;
-=======
-        if (nd[j]->num > 10 && nd[j]->sign == 1)
-        {
-          //	double e;
-          // aritoshi
-          esum += calc_summand3d(&p, nd[j], pose, g, hH, qd3, dist);
-          add_matrix6d(Hsumh, hH, Hsumh);
-
-          //	  dist =1;
-          gsum[0] += g[0];                //*nd[j]->w;
-          gsum[1] += g[1];                //*nd[j]->w;
-          gsum[2] += g[2] + pose->z * 0;  //*nd[j]->w;
-          gsum[3] += g[3];                //*nd[j]->w;
-          gsum[4] += g[4];                //+(pose->theta2-(0.0))*1;//*nd[j]->w;
-          gsum[5] += g[5];                //*nd[j]->w;
-          gnum += 1;  // nd[j]->w;
-        }
->>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
       }
     }
   }

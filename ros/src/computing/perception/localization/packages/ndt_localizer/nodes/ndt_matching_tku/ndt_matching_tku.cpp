@@ -1,8 +1,7 @@
 /*
- * Normal Distributions Transform program
- * 205/04/24 tku
- * ndt_matching for ROS
- */
+  Normal Distributions Transform test program.
+  2005/4/24 tku
+*/
 
 // number of cells
 #define G_MAP_X 2000
@@ -14,42 +13,27 @@
 #include <config.h>
 #endif
 
-#include <GL/glut.h>
-#include <math.h>
 #include <stdio.h>
-#include <chrono>
-<<<<<<< HEAD
-=======
-#include <fstream>
-#include <iostream>
-#include <sstream>
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
+#include <stdlib.h>
 #include <string>
-#include "algebra.h"
+#include <unistd.h>
+#include <math.h>
+#include <GL/glut.h>
+#include <chrono>
 #include "ndt.h"
+#include "algebra.h"
 
-#include <geometry_msgs/PoseWithCovarianceStamped.h>
-#include <geometry_msgs/TwistStamped.h>
-<<<<<<< HEAD
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/io/pcd_io.h>
-#include <tf/transform_broadcaster.h>
-#include <tf/transform_listener.h>
-=======
-#include <pcl/io/io.h>
-#include <pcl/io/pcd_io.h>
-<<<<<<< HEAD
-#include <pcl_conversions/pcl_conversions.h>
-#include <tf/tf.h>
-#include <tf/transform_broadcaster.h>
-#include <tf/transform_listener.h>
 #include "ros/ros.h"
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
-#include "sensor_msgs/PointCloud2.h"
 #include "std_msgs/String.h"
+#include "sensor_msgs/PointCloud2.h"
+#include <geometry_msgs/TwistStamped.h>
+#include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include "velodyne_pointcloud/point_types.h"
 #include "velodyne_pointcloud/rawdata.h"
-=======
+#include <tf/transform_broadcaster.h>
+#include <tf/transform_listener.h>
+#include <iostream>
+#include <pcl/io/pcd_io.h>
 #include <pcl/point_types.h>
 #include <pcl/filters/voxel_grid.h>
 
@@ -57,9 +41,11 @@
 #include "func.cuh"
 
 #define DEFAULT_NDMAP_FILE "../data/nd_dat"
->>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
 
 #define cuda 1  // 0 -> cuda off ,1-> on
+#define SCANPOINTS_DEV 13000
+#define GRID 8
+#define BLOCK 8
 
 /* CUDA用 */
 // aritoshi
@@ -72,21 +58,28 @@ NDPtr *nd_dev;     // initialize_NDmap_layer_cuda で使われるやつら
 //NDMapPtr ndmap_dev;// initialize_NDmap_layer_cuda で使われるやつら
 
 /*grobal variables*/
-NDMapPtr NDmap;
+NDMapPtr NDmap; /*���ֲ�����*/
 NDPtr NDs;
 int NDs_num;
 
+char scan_file_base_name[100];
+
 Point scan_points[130000];
+double scan_points_i[130000];
+double scan_points_e[130000];
 int scan_points_num;
 
 int is_first_time = 1;
 int is_map_exist = 0;
 
 double scan_points_weight[130000];
+double scan_points_totalweight;
 
 Point map_points[130000];
 double map_points_i[130000];
+int mapping_points_num;
 
+int scan_num;
 int layer_select = LAYER_NUM - 1;
 
 Posture prev_pose, prev_pose2;
@@ -94,31 +87,38 @@ Posture prev_pose, prev_pose2;
 // params
 double g_map_center_x, g_map_center_y, g_map_center_z;
 double g_map_rotation;
+int g_map_x, g_map_y, g_map_z;
+double g_map_cellsize;
 char g_ndmap_name[500];
 int g_use_gnss;
 int g_map_update = 1;
 double g_ini_x, g_ini_y, g_ini_z, g_ini_roll, g_ini_pitch, g_ini_yaw;
 
 static double _tf_x, _tf_y, _tf_z, _tf_roll, _tf_pitch, _tf_yaw;
-static Eigen::Matrix4f tf_btol, tf_ltob;  // tf between base_link and localizer
-<<<<<<< HEAD
+static Eigen::Matrix4f tf_btol, tf_ltob; // tf between base_link and localizer
 static tf::Quaternion q_local_to_global;
 static Eigen::Matrix4f tf_local_to_global;
 
+void print_matrix3d(double mat[3][3]);
+void matrix_test(void);
+void print_matrix6d(double mat[6][6]);
+
 void save_nd_map(char *name);
-=======
-static tf::Quaternion q_local_to_global, q_global_to_local;
-static Eigen::Matrix4f tf_local_to_global, tf_global_to_local;
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
 
 static pcl::PointCloud<pcl::PointXYZ> map;
 static int map_loaded = 0;
 
+static ros::Publisher ndmap_pub;
+
 static std::chrono::time_point<std::chrono::system_clock> matching_start, matching_end;
 static double exe_time = 0.0;
 
+std::string _downsampler = "voxel_grid";
+int _downsampler_num = 1;
+
 static ros::Publisher localizer_pose_pub, ndt_pose_pub;
 static geometry_msgs::PoseStamped localizer_pose_msg, ndt_pose_msg;
+
 
 // double pose_mod(Posture *pose){
 void pose_mod(Posture *pose)
@@ -148,174 +148,195 @@ static void map_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
 {
   if (map_loaded == 0)
   {
+    // Convert the data type(from sensor_msgs to pcl).
     pcl::fromROSMsg(*input, map);
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr map_ptr(new pcl::PointCloud<pcl::PointXYZ>(map));
+    /*
+    // Setting point cloud to be aligned to.
+    ndt.setInputTarget(map_ptr);
+    // Setting NDT parameters to default values
+    ndt.setMaximumIterations(iter);
+    ndt.setResolution(ndt_res);
+    ndt.setStepSize(step_size);
+    ndt.setTransformationEpsilon(trans_eps);
+*/
 
+    /*
+        for(int i=2;i<argc;i++){
+            printf("load(%d/%d) %s\n",i-2,argc-2,argv[i]);
+            load(argv[i]);
+          }
+    */
+    std::cout << "map_callback start" << std::endl;
     Point p;
+    int loop = 0;
     for (pcl::PointCloud<pcl::PointXYZ>::const_iterator item = map_ptr->begin(); item != map_ptr->end(); item++)
     {
       p.x = (item->x - g_map_center_x) * cos(-g_map_rotation) - (item->y - g_map_center_y) * sin(-g_map_rotation);
       p.y = (item->x - g_map_center_x) * sin(-g_map_rotation) + (item->y - g_map_center_y) * cos(-g_map_rotation);
       p.z = item->z - g_map_center_z;
-<<<<<<< HEAD
 
+      /*
+      p.x = item->x;
+      p.y = item->y;
+      p.z = item->z;
+      */
       add_point_map(NDmap, &p);
-    }
-    std::cout << "Finished loading point cloud map." << std::endl;
-    save_nd_map(g_ndmap_name);
-=======
-      add_point_map(NDmap, &p);
+      if((loop % 1) == 0){
+        std::cout << "loop: " << loop << std::endl;
+      }
+      //std::cout << "addP_h" << std::endl;
       // aritoshi
       if(cuda == 1){
       add_point_map_cuda(NDmap_dev, NDs_num_dev, NDs_dev, &p);
+      //std::cout << "addP_d" << std::endl;
       }
+      loop++;
     }
     std::cout << "Finished loading point cloud map." << std::endl;
     std::cout << "Map points num: " << map_ptr->size() << " points." << std::endl;
+    std::cout << "Registered ND voxels :" << NDs_num << std::endl;
 
-<<<<<<< HEAD
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
-=======
+if(cuda == 1){
+/*
     int test;
-    test = Test_NDmap(NDmap,NDmap_dev,&NDs_dev, &NDs_num_dev, &nd_dev, &NDmap_dev, g_map_cellsize, g_map_x, g_map_y, g_map_z);
+    test = Test_NDmap(NDmap,NDmap_dev,NDs,NDs_dev, NDs_num_dev, NDs_num, nd_dev, g_map_cellsize, g_map_x, g_map_y, g_map_z);
     if(test == 0){
       std::cout << "NDmap_dev : OK" << std::endl;
     }else{
       std::cout << "NDmap_dev : NG" << std::endl;
     }
-
+*/
+}
     save_nd_map(g_ndmap_name);
->>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
     is_map_exist = 1;
+
     map_loaded = 1;
   }
 }
 
-static void initialpose_callback(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr &input)
-{
-  tf::TransformListener listener;
-  tf::StampedTransform transform;
-<<<<<<< HEAD
-=======
-  std::cout << "call 2D pose estimate" << std::endl;
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
-  try
-  {
-    ros::Time now = ros::Time(0);
-    listener.waitForTransform("/map", "/world", now, ros::Duration(10.0));
-    listener.lookupTransform("/map", "world", now, transform);
-  }
-  catch (tf::TransformException &ex)
-  {
-    ROS_ERROR("%s", ex.what());
-  }
-
-  tf::Quaternion q(input->pose.pose.orientation.x, input->pose.pose.orientation.y, input->pose.pose.orientation.z,
-                   input->pose.pose.orientation.w);
-  tf::Matrix3x3 m(q);
-
-  g_ini_x = input->pose.pose.position.x + transform.getOrigin().x();
-  g_ini_y = input->pose.pose.position.y + transform.getOrigin().y();
-  g_ini_z = input->pose.pose.position.z + transform.getOrigin().z();
-
-<<<<<<< HEAD
-  m.getRPY(g_ini_roll, g_ini_roll, g_ini_yaw);
-
-  prev_pose.x = g_ini_x;
-  prev_pose.y = g_ini_y;
-  prev_pose.z = g_ini_z;
-  prev_pose.theta = g_ini_roll;
-  prev_pose.theta2 = g_ini_pitch;
-  prev_pose.theta3 = g_ini_yaw;
-=======
-  m.getRPY(g_ini_roll, g_ini_pitch, g_ini_yaw);
-
-  // global(map) to local(map center)
-  Eigen::Translation3f translation(g_ini_x, g_ini_y, g_ini_z);
-  Eigen::AngleAxisf rotation_x(g_ini_roll, Eigen::Vector3f::UnitX());
-  Eigen::AngleAxisf rotation_y(g_ini_pitch, Eigen::Vector3f::UnitY());
-  Eigen::AngleAxisf rotation_z(g_ini_yaw, Eigen::Vector3f::UnitZ());
-  Eigen::Matrix4f global_t = (translation * rotation_z * rotation_y * rotation_x).matrix();
-  Eigen::Matrix4f local_t = tf_global_to_local * global_t;
-
-  tf::Quaternion q_g_to_l;
-  tf::Matrix3x3 mat_g;
-  mat_g.setValue(
-      static_cast<double>(local_t(0, 0)), static_cast<double>(local_t(0, 1)), static_cast<double>(local_t(0, 2)),
-      static_cast<double>(local_t(1, 0)), static_cast<double>(local_t(1, 1)), static_cast<double>(local_t(1, 2)),
-      static_cast<double>(local_t(2, 0)), static_cast<double>(local_t(2, 1)), static_cast<double>(local_t(2, 2)));
-
-  mat_g.getRotation(q_g_to_l);
-
-  prev_pose.x = local_t(0, 3);
-  prev_pose.y = local_t(1, 3);
-  prev_pose.z = local_t(2, 3);
-  prev_pose.theta = q_g_to_l.x();
-  prev_pose.theta2 = q_g_to_l.y();
-  prev_pose.theta3 = q_g_to_l.z();
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
-
-  prev_pose2 = prev_pose;
-}
-
-void points_callback(const sensor_msgs::PointCloud2::ConstPtr &msg)
+void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
 {
   matching_start = std::chrono::system_clock::now();
+  static int count = 0;
   static tf::TransformBroadcaster br;
   static FILE *log_fp;
   ros::Time time;
   static tf::TransformListener listener;
-  static ros::Time current_scan_time;
-  current_scan_time = msg->header.stamp;
+  std_msgs::Header header;
 
   static int iteration;
+  int j = 0;
 
-<<<<<<< HEAD
   Posture pose, bpose, initial_pose;
   // aritoshi
   Posture pose_cuda;
   static Posture key_pose;
-
+  //  double e=0,theta,x2,y2;
   double e = 0;
   // aritoshi
   double e_cuda = 0;
   double x_offset, y_offset, z_offset, theta_offset;
-
+  //  double distance,diff;
   double distance;
-=======
-  Posture pose, bpose;
-  double e = 0;
-  double x_offset, y_offset, z_offset, theta_offset;
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
 
   tf::Quaternion ndt_q, localizer_q;
 
-  pcl::PointCloud<pcl::PointXYZ> filtered_scan;
-  pcl::fromROSMsg(*msg, filtered_scan);
-  pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_scan_ptr(new pcl::PointCloud<pcl::PointXYZ>(filtered_scan));
+  //  pcl_conversions::fromPCL(msg->header.stamp,time);
+  pcl_conversions::fromPCL(msg->header, header);
 
+  //  ROS_INFO("%s",msg->header.frame_id.c_str());
+  //  ROS_INFO("%f",msg->header.stamp.toSec());// + (double)msg->header.stamp.nsec/1000000000.);
+
+  /*  ros::Time stamp;
+  stamp = msg->header.stamp;
+  double now = ros::Time::now().toSec();
+  */
   if (!log_fp)
     log_fp = fopen("/tmp/ndt_log", "w");
 
-  int j = 0;
-  for (int i = 0; i < (int)filtered_scan_ptr->points.size(); i++)
-  {
-    scan_points[j].x = filtered_scan_ptr->points[i].x + nrand(0.01);
-    scan_points[j].y = filtered_scan_ptr->points[i].y + nrand(0.01);
-    scan_points[j].z = filtered_scan_ptr->points[i].z + nrand(0.01);
-    double dist =
-        scan_points[j].x * scan_points[j].x + scan_points[j].y * scan_points[j].y + scan_points[j].z * scan_points[j].z;
-    if (dist < 3 * 3)
-      continue;
+  //  ROS_INFO("get data %d",msg->points.size());
+  count++;
+  scan_points_totalweight = 0;
 
-    j++;
-    if (j > 130000)
-      break;
+  if (_downsampler == "voxel_grid")
+  {
+    pcl::PointCloud<pcl::PointXYZ> scan;
+
+    for (int i = 0; i < (int)msg->points.size(); i++)
+    {
+      scan.points.push_back(pcl::PointXYZ(msg->points[i].x, msg->points[i].y, msg->points[i].z));
+    }
+    scan.header = msg->header;
+
+    pcl::PointCloud<pcl::PointXYZ>::Ptr scan_ptr(new pcl::PointCloud<pcl::PointXYZ>(scan));
+    pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_scan_ptr(new pcl::PointCloud<pcl::PointXYZ>);
+
+    pcl::VoxelGrid<pcl::PointXYZ> voxel_grid_filter;
+    voxel_grid_filter.setLeafSize(0.5, 0.5, 0.5);
+    voxel_grid_filter.setInputCloud(scan_ptr);
+    voxel_grid_filter.filter(*filtered_scan_ptr);
+    j = 0;
+    for (int i = 0; i < (int)filtered_scan_ptr->points.size(); i++)
+    {
+      scan_points[j].x = filtered_scan_ptr->points[i].x + nrand(0.01);
+      scan_points[j].y = filtered_scan_ptr->points[i].y + nrand(0.01);
+      scan_points[j].z = filtered_scan_ptr->points[i].z + nrand(0.01);
+      scan_points_i[j] = 100;  // filterd_scan_ptr->points[i].intensity;
+
+      double dist = scan_points[j].x * scan_points[j].x + scan_points[j].y * scan_points[j].y +
+                    scan_points[j].z * scan_points[j].z;
+      if (dist < 3 * 3)
+        continue;
+
+      scan_points_weight[j] = 1;
+      scan_points_totalweight += scan_points_weight[j];
+      j++;
+      if (j > 130000)
+        break;
+    }
+    scan_points_num = j;
+    mapping_points_num = j;
+    //    printf("points_num = %d \n",scan_points_num);
   }
-  scan_points_num = j;
+
+  if (_downsampler == "distance")
+  {
+    /*----------����ǡ����ɤ߼��---------*/
+    j = 0;
+    for (int i = 0; i < (int)msg->points.size(); i++)
+    {
+      scan_points[j].x = msg->points[i].x + nrand(0.01);
+      scan_points[j].y = msg->points[i].y + nrand(0.01);
+      scan_points[j].z = msg->points[i].z + nrand(0.01);
+      scan_points_i[j] = msg->points[i].intensity;
+
+      double dist = scan_points[j].x * scan_points[j].x + scan_points[j].y * scan_points[j].y +
+                    scan_points[j].z * scan_points[j].z;
+      if (dist < 3 * 3)
+        continue;
+      scan_points_weight[j] = (dist) * (1.2 - exp(-1 * (-0.5 - scan_points[j].z) * (-0.5 - scan_points[j].z) / 2.0));
+      // scan_points_weight[j]= (1.2-exp(-1*(-0.5 - scan_points[j].z)*(-0.5 - scan_points[j].z)/2.0));
+      scan_points_totalweight += scan_points_weight[j];
+
+      j++;
+      if (j > 130000)
+        break;
+    }
+    scan_points_num = j;
+    mapping_points_num = j;
+    //    printf("points_num = %d \n",scan_points_num);
+  }
 
   /*--matching---*/
+  /*
+  Posture pose, bpose,initial_pose;
+  static Posture key_pose;
+  double e=0,theta,x2,y2;
+  double x_offset,y_offset,z_offset,theta_offset;
+  double distance,diff;
+*/
   // calc offset
   x_offset = prev_pose.x - prev_pose2.x;
   y_offset = prev_pose.y - prev_pose2.y;
@@ -335,16 +356,14 @@ void points_callback(const sensor_msgs::PointCloud2::ConstPtr &msg)
   pose.theta2 = prev_pose.theta2;
   pose.theta3 = prev_pose.theta3 + theta_offset;
 
-<<<<<<< HEAD
-=======
   initial_pose = pose;
   // aritoshi
   pose_cuda = pose;
 
->>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
   // matching
   for (layer_select = 1; layer_select >= 1; layer_select -= 1)
   {
+    //    	printf("layer=%d\n",layer_select);
     for (j = 0; j < 100; j++)
     {
       if (layer_select != 1 && j > 2)
@@ -354,21 +373,18 @@ void points_callback(const sensor_msgs::PointCloud2::ConstPtr &msg)
       bpose = pose;
 matching_start = std::chrono::system_clock::now();
       e = adjust3d(scan_points, scan_points_num, &pose, layer_select);
-<<<<<<< HEAD
-=======
 matching_end = std::chrono::system_clock::now();
 exe_time = std::chrono::duration_cast<std::chrono::microseconds>(matching_end - matching_start).count() / 1000.0;
 std::cout << exe_time << " , ";
       // aritoshi
       if(cuda == 1){
 matching_start = std::chrono::system_clock::now();
-      e_cuda = adjust3d_cuda(NDmap_dev, NDs_dev, scan_points, &scan_points_dev, scan_points_num, &pose_cuda, layer_select,0.0001);
+      e_cuda = adjust3d_cuda_parallel(GRID,BLOCK,NDmap_dev, NDs_dev, scan_points, scan_points_dev, scan_points_num, &pose_cuda, layer_select,0.0001);
 matching_end = std::chrono::system_clock::now();
 exe_time = std::chrono::duration_cast<std::chrono::microseconds>(matching_end - matching_start).count() / 1000.0;
 std::cout << exe_time << std::endl;
       }
       //	printf("%f\n",e);
->>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
 
       pose_mod(&pose);
       // aritoshi
@@ -437,17 +453,23 @@ std::cout << exe_time << std::endl;
         pose.theta3 = yaw + nrand(0.7);
         prev_pose2 = prev_pose = pose;
         printf("reset %f %f %f %f %f %f\n", pose.x, pose.y, pose.z, pose.theta, pose.theta2, pose.theta3);
+        // reset
 
+        /*	tf::Transform transform;
+  //tf::Quaternion q;
+transform.setOrigin( tf::Vector3(pose.x, pose.y, pose.z) );
+q.setRPY(pose.theta,pose.theta2,pose.theta3);
+transform.setRotation(q);
+br.sendTransform(tf::StampedTransform(transform, ros::Time::now(),  "world", "ndt_frame"));
+*/
         return;
       }
     }
-
-<<<<<<< HEAD
-=======
     // unti-distotion
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
-    if (layer_select == 2)
+
+    if (layer_select == 2 && 1)
     {
+      //    		double rate,angle,xrate,yrate,dx,dy,dtheta;
       double rate, xrate, yrate, dx, dy, dtheta;
       double tempx, tempy;
       int i;
@@ -499,14 +521,13 @@ std::cout << exe_time << std::endl;
   Eigen::Matrix4f global_t = tf_local_to_global * local_t;
 
   tf::Matrix3x3 mat_l;
-  mat_l.setValue(
-      static_cast<double>(global_t(0, 0)), static_cast<double>(global_t(0, 1)), static_cast<double>(global_t(0, 2)),
-      static_cast<double>(global_t(1, 0)), static_cast<double>(global_t(1, 1)), static_cast<double>(global_t(1, 2)),
-      static_cast<double>(global_t(2, 0)), static_cast<double>(global_t(2, 1)), static_cast<double>(global_t(2, 2)));
+  mat_l.setValue(static_cast<double>(global_t(0, 0)), static_cast<double>(global_t(0, 1)), static_cast<double>(global_t(0, 2)),
+                 static_cast<double>(global_t(1, 0)), static_cast<double>(global_t(1, 1)), static_cast<double>(global_t(1, 2)),
+                 static_cast<double>(global_t(2, 0)), static_cast<double>(global_t(2, 1)), static_cast<double>(global_t(2, 2)));
 
   mat_l.getRotation(localizer_q);
   localizer_pose_msg.header.frame_id = "/map";
-  localizer_pose_msg.header.stamp = current_scan_time;
+  localizer_pose_msg.header.stamp = header.stamp;
   localizer_pose_msg.pose.position.x = global_t(0, 3);
   localizer_pose_msg.pose.position.y = global_t(1, 3);
   localizer_pose_msg.pose.position.z = global_t(2, 3);
@@ -518,14 +539,13 @@ std::cout << exe_time << std::endl;
   // base_link
   Eigen::Matrix4f global_t2 = global_t * tf_ltob;
   tf::Matrix3x3 mat_b;  // base_link
-  mat_b.setValue(
-      static_cast<double>(global_t2(0, 0)), static_cast<double>(global_t2(0, 1)), static_cast<double>(global_t2(0, 2)),
-      static_cast<double>(global_t2(1, 0)), static_cast<double>(global_t2(1, 1)), static_cast<double>(global_t2(1, 2)),
-      static_cast<double>(global_t2(2, 0)), static_cast<double>(global_t2(2, 1)), static_cast<double>(global_t2(2, 2)));
+  mat_b.setValue(static_cast<double>(global_t2(0, 0)), static_cast<double>(global_t2(0, 1)), static_cast<double>(global_t2(0, 2)),
+                 static_cast<double>(global_t2(1, 0)), static_cast<double>(global_t2(1, 1)), static_cast<double>(global_t2(1, 2)),
+                 static_cast<double>(global_t2(2, 0)), static_cast<double>(global_t2(2, 1)), static_cast<double>(global_t2(2, 2)));
   mat_b.getRotation(ndt_q);
 
   ndt_pose_msg.header.frame_id = "/map";
-  ndt_pose_msg.header.stamp = current_scan_time;
+  ndt_pose_msg.header.stamp = header.stamp;
   ndt_pose_msg.pose.position.x = global_t2(0, 3);
   ndt_pose_msg.pose.position.y = global_t2(1, 3);
   ndt_pose_msg.pose.position.z = global_t2(2, 3);
@@ -539,7 +559,11 @@ std::cout << exe_time << std::endl;
 
   scan_transrate(scan_points, map_points, &pose, scan_points_num);
 
-<<<<<<< HEAD
+  for (int i = 0; i < scan_points_num; i++)
+  {
+    map_points_i[i] = scan_points_i[i];
+  }
+
   // update ND map
   distance = (key_pose.x - pose.x) * (key_pose.x - pose.x) + (key_pose.y - pose.y) * (key_pose.y - pose.y) +
              (key_pose.z - pose.z) * (key_pose.z - pose.z);
@@ -551,12 +575,10 @@ std::cout << exe_time << std::endl;
     {
       add_point_map(NDmap, &map_points[i]);
     }
-
     key_pose = pose;
     is_map_exist = 1;
   }
-=======
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
+
   prev_pose2 = prev_pose;
   prev_pose = pose;
 
@@ -565,32 +587,34 @@ std::cout << exe_time << std::endl;
     prev_pose2 = prev_pose;
     is_first_time = 0;
   }
-
-<<<<<<< HEAD
-  fprintf(log_fp, "%f %f %f %f %f %f %f\n", header.stamp.toSec(),
-=======
-  fprintf(log_fp, "%f %f %f %f %f %f %f\n", current_scan_time.toSec(),
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
+  /*
+  printf("%f %f %f %f %f %f %f %d \n",0,//(double)msg->header.stamp.toSec(),
+   pose.x,pose.y,pose.z,pose.theta,pose.theta2,pose.theta3,NDs_num) ;
+*/
+  fprintf(log_fp, "%f %f %f %f %f %f %f\n", (double)header.stamp.toSec(),
           pose.x * cos(g_map_rotation) - pose.y * sin(g_map_rotation) + g_map_center_x,
           pose.x * sin(g_map_rotation) + pose.y * cos(g_map_rotation) + g_map_center_y, pose.z + g_map_center_z,
           pose.theta, pose.theta2, pose.theta3 + g_map_rotation);
 
   fflush(log_fp);
   tf::Transform transform;
+//  tf::Quaternion q;
+//  transform.setOrigin(tf::Vector3(pose.x, pose.y, pose.z));
+//  transform.setOrigin(tf::Vector3(pose.x + g_map_center_x, pose.y + g_map_center_y, pose.z + g_map_center_z));
   transform.setOrigin(tf::Vector3(global_t2(0, 3), global_t2(1, 3), global_t2(2, 3)));
+//  q.setRPY(pose.theta, pose.theta2, pose.theta3);
+//  transform.setRotation(q_local_to_global * q);
   transform.setRotation(ndt_q);
 
-<<<<<<< HEAD
+//  br.sendTransform(tf::StampedTransform(transform, header.stamp, "map", "velodyne"));
   br.sendTransform(tf::StampedTransform(transform, header.stamp, "map", "base_link"));
-=======
-  br.sendTransform(tf::StampedTransform(transform, current_scan_time, "map", "base_link"));
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
 
   matching_end = std::chrono::system_clock::now();
   exe_time = std::chrono::duration_cast<std::chrono::microseconds>(matching_end - matching_start).count() / 1000.0;
 /*
   std::cout << "-----------------------------------------------------------------" << std::endl;
   std::cout << "Sequence number: " << msg->header.seq << std::endl;
+  std::cout << "Number of scan points: " << msg->size() << " points." << std::endl;
   std::cout << "Number of filtered scan points: " << scan_points_num << " points." << std::endl;
   std::cout << "Number of iteration: " << iteration << std::endl;
   std::cout << "Execution time: " << exe_time << std::endl;
@@ -598,12 +622,8 @@ std::cout << exe_time << std::endl;
   std::cout << "(" << pose.x << ", " << pose.y << ", " << pose.z << ", " << pose.theta << ", " << pose.theta2 << ", "
             << pose.theta3 << ")" << std::endl;
   std::cout << "-----------------------------------------------------------------" << std::endl;
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
 */
   //  ROS_INFO("get data %d",msg->points.size());
->>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
 }
 
 /*add point to ndcell */
@@ -612,6 +632,7 @@ int add_point_covariance(NDPtr nd, PointPtr p)
   /*add data num*/
   nd->num++;
   nd->flag = 0; /*need to update*/
+  // printf("%d \n",nd->num);
 
   /*calcurate means*/
   nd->m_x += p->x;
@@ -627,6 +648,8 @@ int add_point_covariance(NDPtr nd, PointPtr p)
   nd->c_yz += p->y * p->z;
   nd->c_zx += p->z * p->x;
 
+  std::cout << "cpu - num : " << nd->num << ", m_x : " << nd->m_x << ", m_y : " << nd->m_y << ", m_z : " << nd->m_z << ", c_xx" << nd->c_xx << std::endl;
+
   return 1;
 }
 
@@ -637,7 +660,7 @@ int inv_check(double inv[3][3])
   {
     for (int j = 0; j < 3; j++)
     {
-      if (isnan(inv[i][j]))
+      if (std::isnan(inv[i][j]))
         return 0;
       if (fabs(inv[i][j]) > 1000)
         return 0;
@@ -668,9 +691,12 @@ int update_covariance(NDPtr nd)
     nd->flag = 1; /*this ND updated*/
     if (nd->num >= 5)
     {
-      if (ginverse_matrix3d(nd->covariance, nd->inv_covariance))
-        if (inv_check(nd->inv_covariance))
-          nd->sign = 1;
+      if (1 || round_covariance(nd) == 1)
+      {
+        if (ginverse_matrix3d(nd->covariance, nd->inv_covariance))
+          if (inv_check(nd->inv_covariance))
+            nd->sign = 1;
+      }
     }
   }
 
@@ -680,13 +706,22 @@ int update_covariance(NDPtr nd)
 /*add point to ndmap*/
 int add_point_map(NDMapPtr ndmap, PointPtr point)
 {
-  double x, y, z;
+  int x, y, z, i;
   NDPtr *ndp[8];
+
+  /*
+  +---+---+
+  |   |   |
+  +---+---+
+  |   |###|
+  +---+---+
+  */
 
   /*mapping*/
   x = (point->x / ndmap->size) + ndmap->x / 2;
   y = (point->y / ndmap->size) + ndmap->y / 2;
   z = (point->z / ndmap->size) + ndmap->z / 2;
+  //std::cout << "cpu - point->x : " << point->x << " ndmap->size : " << ndmap->size << "ndmap->x : " << ndmap->x <<  "x : " << x << std::endl;
 
   /*clipping*/
   if (x < 1 || x >= ndmap->x)
@@ -697,7 +732,7 @@ int add_point_map(NDMapPtr ndmap, PointPtr point)
     return 0;
 
   /*select root ND*/
-  ndp[0] = ndmap->nd + (int)x * ndmap->to_x + (int)y * ndmap->to_y + (int)z;
+  ndp[0] = ndmap->nd + x * ndmap->to_x + y * ndmap->to_y + z;
   ndp[1] = ndp[0] - ndmap->to_x;
   ndp[2] = ndp[0] - ndmap->to_y;
   ndp[4] = ndp[0] - 1;
@@ -707,39 +742,36 @@ int add_point_map(NDMapPtr ndmap, PointPtr point)
   ndp[7] = ndp[3] - 1;
 
   /*add  point to map */
-  for (int i = 0; i < 8; i++)
+  for (i = 0; i < 8; i++)
   {
     if ((*ndp[i]) == 0)
       *ndp[i] = add_ND();
     if ((*ndp[i]) != 0)
       add_point_covariance(*ndp[i], point);
   }
-
+/*
   if (ndmap->next)
   {
     add_point_map(ndmap->next, point);
-  }
 
+  }
+*/
   return 0;
 }
 
 /*get nd cell at point*/
 int get_ND(NDMapPtr ndmap, PointPtr point, NDPtr *nd, int ndmode)
 {
-  double x, y, z;
+  int x, y, z;
   int i;
   NDPtr *ndp[8];
 
-<<<<<<< HEAD
-=======
   /*
-
   +---+---+
   |   |   |
   +---+---+
   |   |###|
   +---+---+
-
   */ /*
    layer = layer_select;
    while(layer > 0){
@@ -747,13 +779,12 @@ int get_ND(NDMapPtr ndmap, PointPtr point, NDPtr *nd, int ndmode)
      layer--;
    }
      */
->>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
   /*mapping*/
   if (ndmode < 3)
   {
-    x = (point->x / ndmap->size) + ndmap->x / 2 - 0.5;
-    y = (point->y / ndmap->size) + ndmap->y / 2 - 0.5;
-    z = (point->z / ndmap->size) + ndmap->z / 2 - 0.;
+    x = (double)((point->x / ndmap->size) + ndmap->x / 2 - 0.5);
+    y = (double)((point->y / ndmap->size) + ndmap->y / 2 - 0.5);
+    z = (double)((point->z / ndmap->size) + ndmap->z / 2 - 0.5);
   }
   else
   {
@@ -771,7 +802,7 @@ int get_ND(NDMapPtr ndmap, PointPtr point, NDPtr *nd, int ndmode)
     return 0;
 
   /*select root ND*/
-  ndp[0] = ndmap->nd + (int)x * ndmap->to_x + (int)y * ndmap->to_y + (int)z;
+  ndp[0] = ndmap->nd + x * ndmap->to_x + y * ndmap->to_y + z;
   ndp[1] = ndp[0] - ndmap->to_x;
   ndp[2] = ndp[0] - ndmap->to_y;
   ndp[4] = ndp[0] - 1;
@@ -845,6 +876,7 @@ NDMapPtr initialize_NDmap_layer(int layer, NDMapPtr child)
   y = (g_map_y >> layer) + 1;
   z = (g_map_z >> layer) + 1;
 
+  /*����γ��ݡ�*/
   nd = (NDPtr *)malloc(x * y * z * sizeof(NDPtr));
   ndmap = (NDMapPtr)malloc(sizeof(NDMap));
 
@@ -861,6 +893,7 @@ NDMapPtr initialize_NDmap_layer(int layer, NDMapPtr child)
 
   ndp = nd;
 
+  /*�쥤�䡼�ν��*/
   for (i = 0; i < x; i++)
   {
     for (j = 0; j < y; j++)
@@ -873,17 +906,15 @@ NDMapPtr initialize_NDmap_layer(int layer, NDMapPtr child)
     }
   }
 
+  /*�쥤�䡼�֤�Ϣ�롩*/
   return ndmap;
 }
 
-<<<<<<< HEAD
-=======
 
 
 
 
 /*ND�ܥ�����ν��*/
->>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
 NDMapPtr initialize_NDmap(void)
 {
   int i;
@@ -898,12 +929,8 @@ NDMapPtr initialize_NDmap(void)
   NDs_num = 0;
 
   null_nd = add_ND();
-  if (null_nd == 0)
-  {
-    return 0;
-  }
 
-  for (i = LAYER_NUM - 1; i >= 0; i--)
+  for (i = LAYER_NUM - 1; i > 0; i--)
   {
     ndmap = initialize_NDmap_layer(i, ndmap);
 
@@ -913,7 +940,7 @@ NDMapPtr initialize_NDmap(void)
 
   //  printf("done\n");
 
-  return ndmap;
+  return ndmap; /*���ֲ����ؤΥݥ��󥿤��֤�*/
 }
 
 
@@ -939,10 +966,26 @@ int round_covariance(NDPtr nd)
   if (a < 0.001)
   {
     return 0;
+    if (nd->l[1] > 0)
+      nd->l[1] = fabs(nd->l[0]) / 10.0;
+    else
+      nd->l[1] = -fabs(nd->l[0]) / 10.0;
+
+    a = fabs(nd->l[2] / nd->l[0]);
+    if (a < 0.01)
+    {
+      if (nd->l[2] > 0)
+        nd->l[2] = fabs(nd->l[0]) / 10.0;
+      else
+        nd->l[2] = -fabs(nd->l[0]) / 10.0;
+    }
+    //    printf("r");
+    matrix3d_eigen(v, nd->l[0], nd->l[1], nd->l[2], nd->covariance);
   }
   return 1;
 }
 
+/*����ND�ܥ�������ǤΤ�����֤Ǥγ�Ψ*/
 double probability_on_ND(NDPtr nd, double xp, double yp, double zp)
 {
   //  double xp,yp,zp;
@@ -950,7 +993,11 @@ double probability_on_ND(NDPtr nd, double xp, double yp, double zp)
 
   if (nd->num < 5)
     return 0;
-
+  /*
+  xp = x - nd->mean.x;
+  yp = y - nd->mean.y;
+  zp = z - nd->mean.z;
+  */
   e = exp((xp * xp * nd->inv_covariance[0][0] + yp * yp * nd->inv_covariance[1][1] +
            zp * zp * nd->inv_covariance[2][2] + 2.0 * xp * yp * nd->inv_covariance[0][1] +
            2.0 * yp * zp * nd->inv_covariance[1][2] + 2.0 * zp * xp * nd->inv_covariance[2][0]) /
@@ -989,7 +1036,7 @@ void save_nd_map(char *name)
   int i, j, k, layer;
   NDData nddat;
   NDMapPtr ndmap;
-  NDPtr *ndp;
+  NDPtr *ndp, *ndp_dev;
   FILE *ofp;
 
   // for pcd
@@ -1005,9 +1052,11 @@ void save_nd_map(char *name)
   ndmap = NDmap;
   ofp = fopen(name, "w");
 
-  for (layer = 0; layer < 2; layer++)
+  for (layer = 0; layer < 1; layer++)
   {
     ndp = ndmap->nd;
+    ndp_dev = nd_dev;
+    /*�쥤�䡼�ν��*/
     for (i = 0; i < ndmap->x; i++)
     {
       for (j = 0; j < ndmap->y; j++)
@@ -1017,6 +1066,7 @@ void save_nd_map(char *name)
           if (*ndp)
           {
             update_covariance(*ndp);
+            update_covariance_gpu(ndp_dev);
             nddat.nd = **ndp;
             nddat.x = i;
             nddat.y = j;
@@ -1032,12 +1082,22 @@ void save_nd_map(char *name)
             cloud.points.push_back(p);
           }
           ndp++;
+          ndp_dev++;
         }
       }
       //      printf("a\n");
     }
     ndmap = ndmap->next;
   }
+if(cuda == 1){
+  int test;
+  test = Test_NDmap(NDmap,NDmap_dev,NDs,NDs_dev, NDs_num_dev, NDs_num, nd_dev, g_map_cellsize, g_map_x, g_map_y, g_map_z);
+  if(test == 0){
+    std::cout << "NDmap_dev : OK" << std::endl;
+  }else{
+    std::cout << "NDmap_dev : NG" << std::endl;
+  }
+}
   //  printf("done\n");
   fclose(ofp);
 
@@ -1109,6 +1169,7 @@ int load_nd_map(char *name)
     *(ndmap[nddat.layer]->nd + nddat.x * ndmap[nddat.layer]->to_x + nddat.y * ndmap[nddat.layer]->to_y + nddat.z) = ndp;
     ndp->flag = 0;
     update_covariance(ndp);
+    // fprintf(logfp,"%f %f %f \n",ndp->mean.x, ndp->mean.y, ndp->mean.z);
   }
 
   printf("%d NDVoxels are loaded\n", NDs_num);
@@ -1116,76 +1177,77 @@ int load_nd_map(char *name)
   return 1;
 }
 
-=======
-}
-
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
+/*�ᥤ��ؿ�*/
 int main(int argc, char *argv[])
 {
-  std::cout << "3D NDT scan matching" << std::endl;
+  printf("----------------------\n");
+  printf(" 3D NDT scan matching \n");
+  printf("----------------------\n");
 
   ros::init(argc, argv, "ndt_matching_tku");
 
   ros::NodeHandle nh;
   ros::NodeHandle private_nh("~");
 
+  private_nh.getParam("downsampler", _downsampler);
   private_nh.getParam("init_x", g_ini_x);
   private_nh.getParam("init_y", g_ini_y);
   private_nh.getParam("init_z", g_ini_z);
   private_nh.getParam("init_roll", g_ini_roll);
   private_nh.getParam("init_pitch", g_ini_pitch);
   private_nh.getParam("init_yaw", g_ini_yaw);
-  private_nh.getParam("use_gnss", g_use_gnss);
 
-<<<<<<< HEAD
+  std::cout << "Downsampler: " << _downsampler << std::endl;
+  if (_downsampler == "voxel_grid")
+  {
+    _downsampler_num = 1;
+  }
+  if (_downsampler == "distance")
+  {
+    _downsampler_num = 0;
+  }
+
   if (nh.getParam("tf_x", _tf_x) == false)
-=======
-  if (!nh.getParam("tf_x", _tf_x))
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
   {
     std::cout << "tf_x is not set." << std::endl;
     return 1;
   }
-  if (!nh.getParam("tf_y", _tf_y))
+  if (nh.getParam("tf_y", _tf_y) == false)
   {
     std::cout << "tf_y is not set." << std::endl;
     return 1;
   }
-  if (!nh.getParam("tf_z", _tf_z))
+  if (nh.getParam("tf_z", _tf_z) == false)
   {
     std::cout << "tf_z is not set." << std::endl;
     return 1;
   }
-  if (!nh.getParam("tf_roll", _tf_roll))
+  if (nh.getParam("tf_roll", _tf_roll) == false)
   {
     std::cout << "tf_roll is not set." << std::endl;
     return 1;
   }
-  if (!nh.getParam("tf_pitch", _tf_pitch))
+  if (nh.getParam("tf_pitch", _tf_pitch) == false)
   {
     std::cout << "tf_pitch is not set." << std::endl;
     return 1;
   }
-  if (!nh.getParam("tf_yaw", _tf_yaw))
+  if (nh.getParam("tf_yaw", _tf_yaw) == false)
   {
     std::cout << "tf_yaw is not set." << std::endl;
     return 1;
   }
 
-<<<<<<< HEAD
-  Eigen::Translation3f tl_btol(_tf_x, _tf_y, _tf_z);                 // tl: translation
-=======
   std::cout << cuda_add() << std::endl;
 
   Eigen::Translation3f tl_btol(_tf_x, _tf_y, _tf_z);  // tl: translation
->>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
   Eigen::AngleAxisf rot_x_btol(_tf_roll, Eigen::Vector3f::UnitX());  // rot: rotation
   Eigen::AngleAxisf rot_y_btol(_tf_pitch, Eigen::Vector3f::UnitY());
   Eigen::AngleAxisf rot_z_btol(_tf_yaw, Eigen::Vector3f::UnitZ());
   tf_btol = (tl_btol * rot_z_btol * rot_y_btol * rot_x_btol).matrix();
 
   Eigen::Translation3f tl_ltob((-1.0) * _tf_x, (-1.0) * _tf_y, (-1.0) * _tf_z);  // tl: translation
-  Eigen::AngleAxisf rot_x_ltob((-1.0) * _tf_roll, Eigen::Vector3f::UnitX());     // rot: rotation
+  Eigen::AngleAxisf rot_x_ltob((-1.0) * _tf_roll, Eigen::Vector3f::UnitX());  // rot: rotation
   Eigen::AngleAxisf rot_y_ltob((-1.0) * _tf_pitch, Eigen::Vector3f::UnitY());
   Eigen::AngleAxisf rot_z_ltob((-1.0) * _tf_yaw, Eigen::Vector3f::UnitZ());
   tf_ltob = (tl_ltob * rot_z_ltob * rot_y_ltob * rot_x_ltob).matrix();
@@ -1203,26 +1265,15 @@ int main(int argc, char *argv[])
   g_map_center_y = g_ini_y;
   g_map_center_z = g_ini_z;
   g_map_rotation = 0.0;
+  // use gnss
+  g_use_gnss = 0;
 
   Eigen::Translation3f tl_local_to_global(g_map_center_x, g_map_center_y, g_map_center_z);  // tl: translation
-  Eigen::AngleAxisf rot_x_local_to_global(0.0, Eigen::Vector3f::UnitX());                   // rot: rotation
+  Eigen::AngleAxisf rot_x_local_to_global(0.0, Eigen::Vector3f::UnitX());  // rot: rotation
   Eigen::AngleAxisf rot_y_local_to_global(0.0, Eigen::Vector3f::UnitY());
   Eigen::AngleAxisf rot_z_local_to_global(g_map_rotation, Eigen::Vector3f::UnitZ());
   q_local_to_global.setRPY(0.0, 0.0, g_map_rotation);
-  tf_local_to_global =
-      (tl_local_to_global * rot_z_local_to_global * rot_y_local_to_global * rot_x_local_to_global).matrix();
-<<<<<<< HEAD
-=======
-
-  Eigen::Translation3f tl_global_to_local((-1.0) * g_map_center_x, (-1.0) * g_map_center_y,
-                                          (-1.0) * g_map_center_z);      // tl: translation
-  Eigen::AngleAxisf rot_x_global_to_local(0, Eigen::Vector3f::UnitX());  // rot: rotation
-  Eigen::AngleAxisf rot_y_global_to_local(0, Eigen::Vector3f::UnitY());
-  Eigen::AngleAxisf rot_z_global_to_local((-1.0) * g_map_rotation, Eigen::Vector3f::UnitZ());
-  q_global_to_local.setRPY(0.0, 0.0, (-1.0) * g_map_rotation);
-  tf_global_to_local =
-      (tl_global_to_local * rot_z_global_to_local * rot_y_global_to_local * rot_x_global_to_local).matrix();
->>>>>>> 95e58aa41584be2ace4cc49446a8ee2e4d22594e
+  tf_local_to_global = (tl_local_to_global * rot_z_local_to_global * rot_y_local_to_global * rot_x_local_to_global).matrix();
 
 
 
@@ -1231,7 +1282,9 @@ int main(int argc, char *argv[])
   // aritoshi
   if(cuda == 1){
   initialize_NDmap_cuda(&NDs_dev, &NDs_num_dev, &nd_dev, &NDmap_dev, g_map_cellsize, g_map_x, g_map_y, g_map_z);
-  initialize_scan_points_cuda(&scan_points_dev, 13000);
+  std::cout << "initialized NDmap_cuda" << std::endl;
+  initialize_scan_points_cuda(&scan_points_dev, SCANPOINTS_DEV);
+  std::cout << "initialized scanpoints_cuda" << std::endl;
   }
 
   // load map
@@ -1245,23 +1298,26 @@ int main(int argc, char *argv[])
   prev_pose2 = prev_pose;
   is_first_time = 1;
 
+  ndmap_pub = nh.advertise<sensor_msgs::PointCloud2>("/ndmap", 1000);
   ndt_pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/ndt_pose", 1000);
   localizer_pose_pub = nh.advertise<geometry_msgs::PoseStamped>("/localizer_pose", 1000);
 
   ros::Subscriber map_sub = nh.subscribe("points_map", 10, map_callback);
-  ros::Subscriber initialpose_sub = nh.subscribe("initialpose", 1000, initialpose_callback);
-  ros::Subscriber points_sub = nh.subscribe("filtered_points", 1000, points_callback);
+  ros::Subscriber points_sub = nh.subscribe("points_raw", 1000, points_callback);
 
+  /*
+    while (ros::ok()){
+      ros::spinOnce();
+    }
+  */
   ros::spin();
 
-<<<<<<< HEAD
-=======
   //aritoshi
   if(cuda == 1){
-  free_procedure(&NDs_dev, &NDs_num_dev, &nd_dev, &NDmap_dev,&scan_points_dev);
+  free_procedure(NDs_dev, NDs_num_dev, nd_dev, NDmap_dev,scan_points_dev);
   }
+  cudaReset();
 
   save_nd_map((char *)"/tmp/ndmap");
->>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
   return 1;
 }

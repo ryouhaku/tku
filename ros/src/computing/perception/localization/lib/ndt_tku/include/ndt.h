@@ -23,14 +23,13 @@
 /*root cell size*/
 /*
   #define MAP_CELLSIZE 0.2 //m
-
   #define MAP_X 128
   #define MAP_Y 80
   #define MAP_Z 48
 */
 
 //#define MAP_CELLSIZE 1.0 //m
-#define MAX_ND_NUM (20000000)
+#define MAX_ND_NUM (1000000)
 
 // map origin//
 // meidai_map
@@ -55,7 +54,6 @@
 #define MAP_X 2200
 #define MAP_Y 2600
 #define MAP_Z 200
-
 #endif
 
 // moriyama_map
@@ -212,7 +210,6 @@ typedef struct Normaldistribution
   int flag; /*is updated*/
   int sign;
 
-<<<<<<< HEAD
   int num; /*data num*/
 
   double m_x; /*mean*/
@@ -220,15 +217,6 @@ typedef struct Normaldistribution
   double m_z;
 
   double c_xx; /*covariance*/
-=======
-  int num;   /*data num*/
-
-  double m_x;/*mean*/
-  double m_y;
-  double m_z;
-
-  double c_xx;/*covariance*/
->>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
   double c_yy;
   double c_zz;
   double c_xy;
@@ -241,15 +229,9 @@ typedef struct Normaldistribution
 
   double w;
 
-<<<<<<< HEAD
   double l[3]; /*eigen value*/
 
   int is_source; /**/
-=======
-  double l[3];/*eigen value*/
-
-  int   is_source;/**/
->>>>>>> a1a2409f3d80714590e5ec451372fc0fba6869bd
   //  NDPtr child[8]; /*upper level layer*/
 } NormalDistribution;
 
