@@ -4,6 +4,18 @@
 #include <string>
 #include "std_msgs/String.h"
 
+#include <GL/glut.h>
+#include <iostream>
+//#include <pcl/io/pcd_io.h>
+#include <pcl/point_types.h>
+#include <pcl/filters/voxel_grid.h>
+
+//#include "thrust\host_vector.h"
+//#include "thrust\device_vector.h"
+#include <thrust/host_vector.h>
+#include <thrust/device_vector.h>
+
+
 #define E_ERROR 0.001
 #define P 3000
 #define ID 10000
@@ -23,39 +35,13 @@ void CHECK(cudaError call,unsigned int line)
 __device__
 int update_covariance_cuda(NDPtr nd);
 
-__device__ int addem( int a, int b ) {
+__device__ int addem( int a, int b )
+{
     return a + b;
 }
 
-__global__ void cuda_add_dev( int *a, int *b, int *c ) {
-    *c = addem( *a, *b );
-}
-
-int cuda_add(){
-  int a,b,c;
-  int *dev_a, *dev_b, *dev_c;
-  CHECK(cudaMalloc( (void**)&dev_a, sizeof(int) ),__LINE__);
-  CHECK(cudaMalloc( (void**)&dev_b, sizeof(int) ),__LINE__);
-  CHECK(cudaMalloc( (void**)&dev_c, sizeof(int) ),__LINE__);
-
-a = 4;
-b = 8;
-  CHECK(cudaMemcpy( dev_a, &a , sizeof(int), cudaMemcpyHostToDevice),__LINE__);
-  CHECK(cudaMemcpy( dev_b, &b , sizeof(int), cudaMemcpyHostToDevice),__LINE__);
-
-  cuda_add_dev<<<1,1>>>( dev_a, dev_b, dev_c );
-
-  CHECK(cudaMemcpy( &c, dev_c, sizeof(int),
-                          cudaMemcpyDeviceToHost ),__LINE__);
-  printf( "4 + 8 = %d\n", c );
-  cudaFree( dev_a );
-  cudaFree( dev_b );
-  cudaFree( dev_c );
-
-  return c;
-}
-
-void cudaReset(){
+void cudaReset()
+{
   CHECK(cudaDeviceReset(),__LINE__);
 }
 
@@ -84,12 +70,11 @@ void add_ND_cuda(NDPtr nds_dev,int *nds_num_dev)
     ndp->c_zx = 0;
     ndp->w = 1;
     ndp->is_source = 0;
-
   }
 }
 
 __global__
-void initialize_NDmap_layer_cuda_subfunc(NDMapPtr ndmap,int x,int y,int z,int layer,NDPtr *nd, double g_map_cellsize)
+void initialize_NDmap_layer_cuda_subfunc(NDMapPtr ndmap, int x, int y, int z, int layer, NDPtr *nd, double g_map_cellsize)
 {
   int i, j, k;
   NDPtr *ndp;
@@ -106,10 +91,9 @@ void initialize_NDmap_layer_cuda_subfunc(NDMapPtr ndmap,int x,int y,int z,int la
   //  printf("size %f\n",ndmap->size);
 
   ndp = nd;
-printf("g_map_cellsize : %f, \nlayer : %d, \n((int)1 << layer) : %d, \ng_map_cellsize * ((int)1 << layer) : %f\n",g_map_cellsize,layer,((int)1 << layer),g_map_cellsize * ((int)1 << layer));
-printf("hogehoge\n");
-printf("ndmap_dev_init : %d %d %d %d %d %f\n",ndmap->x,ndmap->y,ndmap->z,ndmap->to_x,ndmap->to_y,ndmap->size);
-printf("NDmap_dev address(dev) : %p\n",ndmap);
+//printf("g_map_cellsize : %f, \nlayer : %d, \n((int)1 << layer) : %d, \ng_map_cellsize * ((int)1 << layer) : %f\n",g_map_cellsize,layer,((int)1 << layer),g_map_cellsize * ((int)1 << layer));
+//printf("ndmap_dev_init : %d %d %d %d %d %f\n",ndmap->x,ndmap->y,ndmap->z,ndmap->to_x,ndmap->to_y,ndmap->size);
+//printf("NDmap_dev address(dev) : %p\n",ndmap);
   /*�쥤�䡼�ν��*/
   for (i = 0; i < x; i++)
   {
@@ -126,96 +110,54 @@ printf("NDmap_dev address(dev) : %p\n",ndmap);
 
 void initialize_NDmap_layer_cuda(int layer, NDPtr **nd_dev_ptr, NDMapPtr *ndmap_dev_ptr, double g_map_cellsize, int g_map_x, int g_map_y, int g_map_z)//, NDMapPtr child)
 {
-  // int i,j,k,i2,i3,m;
-  //int i, j, k;
   int x, y, z;
-  //NDPtr *ndp; // , *nd
-  //NDMapPtr ndmap;
-
-  //  i2 = i3 = 0;
-  //  printf("Initializing...layer %d\n",layer);
 
   x = (g_map_x >> layer) + 1;
   y = (g_map_y >> layer) + 1;
   z = (g_map_z >> layer) + 1;
 
-  /*����γ��ݡ�*/
-  //nd = (NDPtr *)malloc(x * y * z * sizeof(NDPtr));
-  //ndmap = (NDMapPtr)malloc(sizeof(NDMap));
+  std::cout << "before initialize_NDmap_layer_cuda:" << std::endl;
+  std::cout << "&nd_dev : " << *nd_dev_ptr << std::endl;
+  std::cout << "&ndmap_dev : " << *ndmap_dev_ptr << std::endl;
+  // init nd_dev
   CHECK(cudaMalloc(&(*nd_dev_ptr), x * y * z * sizeof(NDPtr)),__LINE__);
+  // init NDMap
   CHECK(cudaMalloc(&(*ndmap_dev_ptr), sizeof(NDMap)),__LINE__);
-printf("hoge\n");
-  initialize_NDmap_layer_cuda_subfunc<<<1,1>>>(*ndmap_dev_ptr,x,y,z,layer,*nd_dev_ptr, g_map_cellsize);
-std::cout << "NDmap_dev address : " << *ndmap_dev_ptr << std::endl;
-printf("init layer subfunc : %d %d %d\n",x,y,z);
-/*
-  ndmap->x = x;
-  ndmap->y = y;
-  ndmap->z = z;
-  ndmap->to_x = y * z;
-  ndmap->to_y = z;
-  ndmap->layer = layer;
-  ndmap->nd = nd;
-  ndmap->next = child;
-  ndmap->size = g_map_cellsize * ((int)1 << layer);
-*/
-  //  printf("size %f\n",ndmap->size);
 
-  //ndp = nd;
+  initialize_NDmap_layer_cuda_subfunc<<<1,1>>>(*ndmap_dev_ptr, x, y, z, layer, *nd_dev_ptr, g_map_cellsize);
+  CHECK(cudaDeviceSynchronize(),__LINE__);
 
-  /*�쥤�䡼�ν��*/
-/*
-  for (i = 0; i < x; i++)
-  {
-    for (j = 0; j < y; j++)
-    {
-      for (k = 0; k < z; k++)
-      {
-        *ndp = 0;
-        ndp++;
-      }
-    }
-  }
-*/
-  /*�쥤�䡼�֤�Ϣ�롩*/
-  //return ndmap;
+  std::cout << "after initialize_NDmap_layer_cuda:" << std::endl;
+  std::cout << "&nd_dev : " << *nd_dev_ptr << std::endl;
+  std::cout << "&ndmap_dev : " << *ndmap_dev_ptr << std::endl;
+  //std::cout << "NDmap_dev address : " << *ndmap_dev_ptr << std::endl;
+  //printf("init layer subfunc : %d %d %d\n",x,y,z);
 }
 
 
-void initialize_NDmap_cuda(NDPtr *NDs_dev_ptr, int **NDs_num_dev_ptr, NDPtr **nd_dev_ptr, NDMapPtr *ndmap_dev_ptr, double g_map_cellsize, int g_map_x, int g_map_y, int g_map_z)
+void initialize_NDmap_cuda(NDPtr *NDs_dev_ptr, int **NDs_num_dev_ptr, NDPtr **nd_dev_ptr, NDMapPtr *NDmap_dev_ptr, double g_map_cellsize, int g_map_x, int g_map_y, int g_map_z)
 {
-  std::cout << "ND : " << sizeof(NormalDistribution) << " MAX_ND_NUM : " << MAX_ND_NUM << std::endl;
+  std::cout << "before initialization: " << std::endl;
+  std::cout << "&NDmap_dev - " << *NDmap_dev_ptr << std::endl;
+  std::cout << "&NDs_dev - " << *NDs_dev_ptr << std::endl;
+  std::cout << "&NDs_num_dev - " << *NDs_num_dev_ptr << std::endl;
+  std::cout << "&NDs_dev - " << *NDs_dev_ptr << std::endl;
+  // init NDs_dev
   CHECK(cudaMalloc((void **)&(*NDs_dev_ptr), sizeof(NormalDistribution) * MAX_ND_NUM),__LINE__);
+  // init NDs_num
   CHECK(cudaMalloc((void **)&(*NDs_num_dev_ptr), sizeof(int)),__LINE__);
   int zero = 0;
-  CHECK(cudaMemcpy(*NDs_num_dev_ptr, &zero, sizeof(int), cudaMemcpyHostToDevice),__LINE__);
 
-  //int i;
-  //NDMapPtr ndmap;
-  //NDPtr null_nd;
+  //add_ND_cuda<<<1,1>>>(*NDs_dev_ptr,*NDs_num_dev_ptr);
+  CHECK(cudaDeviceSynchronize(),__LINE__);
 
-  printf("Initialize NDmap_cuda\n");
-  //ndmap = 0;
+  initialize_NDmap_layer_cuda(1, nd_dev_ptr, NDmap_dev_ptr, g_map_cellsize, g_map_x, g_map_y, g_map_z);//, ndmap);
 
-  // init NDs
-  //NDs = (NDPtr)malloc(sizeof(NormalDistribution) * MAX_ND_NUM);
-  //NDs_num = 0;
-
-  //null_nd = add_ND();
-  add_ND_cuda<<<1,1>>>(*NDs_dev_ptr,*NDs_num_dev_ptr);
-
-  //for (i = LAYER_NUM - 1; i >= 0; i--)
-  //{
-    //ndmap =
-    initialize_NDmap_layer_cuda(1, nd_dev_ptr, ndmap_dev_ptr, g_map_cellsize, g_map_x, g_map_y, g_map_z);//, ndmap);
-    CHECK(cudaDeviceSynchronize(),__LINE__);
-    /*progress dots*/
-    //    printf("layer %d\n",i);
-  //}
-
-  //  printf("done\n");
-
-  //return ndmap; /*���ֲ����ؤΥݥ��󥿤��֤�*/
+  std::cout << "after initialization: " << std::endl;
+  std::cout << "&NDmap_dev - " << *NDmap_dev_ptr << std::endl;
+  std::cout << "&NDs_dev - " << *NDs_dev_ptr << std::endl;
+  std::cout << "&NDs_num_dev - " << *NDs_num_dev_ptr << std::endl;
+  std::cout << "&NDs_dev - " << *NDs_dev_ptr << std::endl;
 }
 
 __device__
@@ -227,7 +169,7 @@ int add_point_covariance_cuda(NDPtr nd, PointPtr p)
   // printf("%d \n",nd->num);
 
   /*calcurate means*/
-  printf("add_point_covariance_cuda p->x : %f\n",p->x);
+  //printf("add_point_covariance_cuda p->x : %f\n",p->x);
   nd->m_x += p->x;
   nd->m_y += p->y;
   nd->m_z += p->z;
@@ -241,7 +183,7 @@ int add_point_covariance_cuda(NDPtr nd, PointPtr p)
   nd->c_yz += p->y * p->z;
   nd->c_zx += p->z * p->x;
 
-printf("gpu - num : %d, m_x : %f, m_y : %f, m_z : %f, c_xx : %f\n",nd->num,nd->m_x,nd->m_y,nd->m_z,nd->c_xx);
+//printf("gpu - num : %d, m_x : %f, m_y : %f, m_z : %f, c_xx : %f\n",nd->num,nd->m_x,nd->m_y,nd->m_z,nd->c_xx);
 
   return 1;
 }
@@ -338,6 +280,251 @@ int add_point_map_cuda(NDMapPtr NDmap_dev, int *NDs_num_dev, NDPtr NDs_dev, Poin
   return 0;
 }
 
+__device__
+void add_point_map_kernel(NDMapPtr ndmap, int *NDs_num_dev, NDPtr NDs_dev, Point *p){
+  int x, y, z, i;
+  NDPtr *ndp[8];
+  // aritoshi
+  PointPtr point = p;
+
+  //printf("point->x : %f, p.x : %f\n",point->x,p.x);
+/*  printf("point->y : %f, p.y : %f",point->y,p.y);
+  printf("point->z : %f, p.z : %f",point->z,p.z);
+*/
+
+  /*mapping*/
+  x = (point->x / ndmap->size) + ndmap->x / 2;
+  y = (point->y / ndmap->size) + ndmap->y / 2;
+  z = (point->z / ndmap->size) + ndmap->z / 2;
+  //printf("gpu - point->x : %f, ndmap->size : %f, ndmap->x : %d ,x : %d\n",point->x,ndmap->size,ndmap->x,x);
+
+  /*clipping*/
+  if ((x < 1 || x >= ndmap->x) || (y < 1 || y >= ndmap->y) || (z < 1 || z >= ndmap->z)){
+    /* end */
+    //printf("error : func.cu:286\n");
+  }else{
+
+  /*select root ND*/
+  ndp[0] = ndmap->nd + x * ndmap->to_x + y * ndmap->to_y + z;
+  ndp[1] = ndp[0] - ndmap->to_x;
+  ndp[2] = ndp[0] - ndmap->to_y;
+  ndp[4] = ndp[0] - 1;
+  ndp[3] = ndp[2] - ndmap->to_x;
+  ndp[5] = ndp[4] - ndmap->to_x;
+  ndp[6] = ndp[4] - ndmap->to_y;
+  ndp[7] = ndp[3] - 1;
+
+  /*add  point to map */
+  for (i = 0; i < 8; i++)
+  {
+    if ((*ndp[i]) == 0)
+      *ndp[i] = add_ND_cuda(NDs_num_dev,NDs_dev);
+    if ((*ndp[i]) != 0)
+      add_point_covariance_cuda(*ndp[i], point);
+      //update_covariance_cuda(*ndp[i]);
+      //printf("*ndp[%d] : %p",i,*ndp[i]);
+  }
+
+  }
+
+  //printf("&ndmap_dev->nd : %p",ndmap->nd);
+  //printf("&NDs_dev : %p",NDs_dev);
+}
+
+__device__
+NDPtr add_ND_cuda2(int *NDs_num_dev,NDPtr NDs_dev)
+{
+  NDPtr ndp;
+  // int m;
+//printf("*NDs_num_dev : %d\n",*NDs_num_dev);
+  if (*NDs_num_dev >= MAX_ND_NUM)
+  {
+    printf("over flow\n");
+    return 0;
+  }
+
+  ndp = NDs_dev + *NDs_num_dev;
+  *NDs_num_dev += 1;
+
+  return ndp;
+}
+
+__device__
+void add_point_map_kernel2(NDMapPtr ndmap, int *NDs_num_dev, NDPtr NDs_dev, NDPtr NDs, Point *p){
+  int x, y, z, i;
+  NDPtr *ndp[8];
+  // aritoshi
+  PointPtr point = p;
+
+  //printf("point->x : %f, p.x : %f\n",point->x,p.x);
+/*  printf("point->y : %f, p.y : %f",point->y,p.y);
+  printf("point->z : %f, p.z : %f",point->z,p.z);
+*/
+
+  /*mapping*/
+  x = (point->x / ndmap->size) + ndmap->x / 2;
+  y = (point->y / ndmap->size) + ndmap->y / 2;
+  z = (point->z / ndmap->size) + ndmap->z / 2;
+  //printf("gpu - point->x : %f, ndmap->size : %f, ndmap->x : %d ,x : %d\n",point->x,ndmap->size,ndmap->x,x);
+
+  /*clipping*/
+  if ((x < 1 || x >= ndmap->x) || (y < 1 || y >= ndmap->y) || (z < 1 || z >= ndmap->z)){
+    /* end */
+    //printf("error : func.cu:286\n");
+  }else{
+
+  /*select root ND*/
+  ndp[0] = ndmap->nd + x * ndmap->to_x + y * ndmap->to_y + z;
+  ndp[1] = ndp[0] - ndmap->to_x;
+  ndp[2] = ndp[0] - ndmap->to_y;
+  ndp[4] = ndp[0] - 1;
+  ndp[3] = ndp[2] - ndmap->to_x;
+  ndp[5] = ndp[4] - ndmap->to_x;
+  ndp[6] = ndp[4] - ndmap->to_y;
+  ndp[7] = ndp[3] - 1;
+
+  /*add  point to map */
+  for (i = 0; i < 8; i++)
+  {
+    if ((*ndp[i]) != 0)
+      *ndp[i] = NDs_dev + (*ndp[i] - NDs); // offset はそのままに、先頭アドレスをNDs -> NDs_devに張り替えてる。アトミックじゃなくてたぶん大丈夫。
+      //add_ND_cuda2(NDs_num_dev,NDs_dev);
+    //if ((*ndp[i]) != 0)
+      //add_point_covariance_cuda(*ndp[i], point);
+      //update_covariance_cuda(*ndp[i]);
+      //printf("*ndp[%d] : %p",i,*ndp[i]);
+  }
+
+  }
+
+  //printf("&ndmap_dev->nd : %p",ndmap->nd);
+  //printf("&NDs_dev : %p",NDs_dev);
+}
+
+__global__
+void add_point_kernel(Point *pp,NDMapPtr NDmap_dev, int *NDs_num_dev, NDPtr NDs_dev,size_t size)
+//                      double g_map_center_x,double g_map_center_y,double g_map_center_z,double sin_g_map_rotation,double cos_g_map_rotation)
+{
+  printf("map_callback_gpu start\n");
+  int loop = 0;
+
+  for (size_t i = 0; i < size; i++) {
+    add_point_map_kernel(NDmap_dev, NDs_num_dev, NDs_dev, &pp[i]);
+    if((loop % 10000) == 0){
+      printf("GPU loop: %d\n",loop);
+    }
+    loop++;
+  }
+}
+
+__global__
+void add_point_kernel2(Point *pp,NDMapPtr NDmap_dev, int *NDs_num_dev, NDPtr NDs_dev, NDPtr NDs, size_t size)
+//                      double g_map_center_x,double g_map_center_y,double g_map_center_z,double sin_g_map_rotation,double cos_g_map_rotation)
+{
+  int loop = blockIdx.x * blockDim.x + threadIdx.x;
+  int max_step = (size / (blockDim.x * gridDim.x)) + 1;
+
+  for(int step = 0;step < max_step; step += blockDim.x * gridDim.x){
+    if(loop + step >= size) return; // 境界チェック
+
+    add_point_map_kernel2(NDmap_dev, NDs_num_dev, NDs_dev, NDs, &pp[loop + step]);
+/*
+    if(((loop + step) % 10000) == 0){
+      printf("GPU loop: %d\n",loop + step);
+    }
+*/
+  }
+}
+
+void test_cuda(Point *pp,pcl::PointCloud<pcl::PointXYZ>::Ptr map_ptr,NDMapPtr NDmap_dev, int *NDs_num_dev, NDPtr NDs_dev,
+               double g_map_center_x,double g_map_center_y,double g_map_center_z,double sin_g_map_rotation,double cos_g_map_rotation){
+//  thrust::device_vector<pcl::PointXYZ> dev_points(map_ptr->begin(),map_ptr->end());
+  Point *D;
+  CHECK(cudaMalloc(&D,sizeof(Point) * map_ptr->size()),__LINE__);
+  CHECK(cudaMemcpy(D,pp,sizeof(Point) * map_ptr->size(),cudaMemcpyHostToDevice),__LINE__);
+  //pcl::PointCloud<pcl::PointXYZ> *dev_points_ptr = thrust::raw_pointer_cast(dev_points.data());
+
+  add_point_kernel<<<1,1>>>(D,NDmap_dev,NDs_num_dev,NDs_dev,map_ptr->size());
+//                            g_map_center_x,g_map_center_y,g_map_center_z,sin_g_map_rotation,cos_g_map_rotation);
+  CHECK(cudaDeviceSynchronize(),__LINE__);
+  CHECK(cudaFree(D),__LINE__);
+}
+
+__global__
+void add_point_kernel3(NDPtr NDs, NDPtr NDs_dev, NDPtr *nd_dev, int size){
+  //printf("blockDim.x : %d, gridDim.x : %d\n", blockDim.x, gridDim.x);
+  int loop = blockIdx.x * blockDim.x + threadIdx.x;
+  int max_step = (size / (blockDim.x * gridDim.x)) + 1;
+
+  for(int step = 0;step < max_step; step += blockDim.x * gridDim.x){
+    if(loop + step >= size) return; // 境界チェック
+    nd_dev[loop + step] += (NDs_dev - NDs);
+  }
+}
+
+void checknd(NDPtr *nd_dev,NDMapPtr NDmap){
+  int i,ans, diff = 0;
+  NDPtr *ND_dev,*ND;
+  ND_dev = (NDPtr *)malloc(sizeof(NDPtr) * NDmap->x * NDmap->y * NDmap->z);
+
+  ND = NDmap->nd;
+  CHECK(cudaMemcpy(ND_dev, nd_dev, sizeof(NDPtr) * NDmap->x * NDmap->y * NDmap->z, cudaMemcpyDeviceToHost),__LINE__);
+  for (i = 0; i < NDmap->x * NDmap->y * NDmap->z; i++) {
+    if(ND[i] != ND_dev[i]){
+      diff++;
+    }
+/*
+    if((((((((i == 4690 || i = 4691) || i == 4791) || i == 4792) || i == 4892) || i == 4893) || i == 4993) || i == 4994) || i == 4995){
+      std::cout << "[BEFORE] (ND_dev[" << i <<"]: " << ND_dev[i] << ", ND[" << i << "]: " << ND[i] << std::endl;
+                //<< ", NDs: " << NDs << ", NDs_dev: " << NDs_dev << std::endl;
+    }
+*/
+  }
+
+  if(diff != 0){
+    std::cout << "[ERROR] nd is not correctly copied : diff is " << diff << std::endl;
+  }else{
+    std::cout << "nd is successfly copied!" << std::endl;
+  }
+
+  free(ND_dev);
+}
+
+void make_ndmap_cuda(Point *pp,pcl::PointCloud<pcl::PointXYZ>::Ptr map_ptr,NDMapPtr NDmap, NDMapPtr NDmap_dev, NDPtr NDs, NDPtr NDs_dev, int NDs_num, int *NDs_num_dev, NDPtr *nd_dev)
+{
+  // copy NDs
+  CHECK(cudaMemcpy(NDs_dev, NDs, MAX_ND_NUM * sizeof(NormalDistribution), cudaMemcpyHostToDevice),__LINE__);
+  // copy NDs_num
+  CHECK(cudaMemcpy(NDs_num_dev, &NDs_num, sizeof(int), cudaMemcpyHostToDevice),__LINE__);
+  // copy nd
+  CHECK(cudaMemcpy(nd_dev, NDmap->nd, sizeof(NDPtr) * NDmap->x * NDmap->y * NDmap->z, cudaMemcpyHostToDevice),__LINE__);
+
+  // check if nd is correctly copied
+  checknd(nd_dev, NDmap);
+
+  dim3 block(32);
+  dim3 grid(32);
+  // shift base address of nd
+  add_point_kernel3<<<grid,block>>>(NDs, NDs_dev, nd_dev, NDmap->x * NDmap->y * NDmap->z);
+
+  CHECK(cudaDeviceSynchronize(),__LINE__);
+}
+
+/*
+int add_point_map_cuda2(NDMapPtr NDmap_dev, int *NDs_num_dev, NDPtr NDs_dev, PointPtr p){
+
+  cudaMalloc();
+  cudaMemcpy();
+
+  add_point_map_cuda2_func<<<1,1>>>(NDmap_dev, NDs_num_dev, NDs_dev, *p);
+  //CHECK(cudaDeviceSynchronize(),__LINE__);
+  CHECK(cudaDeviceSynchronize(),__LINE__);
+
+  cudaFree();
+
+  return 0;
+}
+*/
 __device__
 int jacobi_matrix3d_cuda(int ct, double eps, double A[3][3], double A1[3][3], double X1[3][3])
 {
@@ -1599,7 +1786,7 @@ double adjust3d_cuda(NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan, PointPtr scan
 
   adjust3d_func<<<1,1>>>(NDs, NDmap_dev, scan_points_dev, pose, num, sc, sc_d, sc_dd,
                 dist, E_THETA, esum_dev, Hsumh_dev, gnum_dev, gsum_dev);
-  cudaDeviceSynchronize();
+  CHECK(cudaDeviceSynchronize(),__LINE__);
 
   CHECK(cudaMemcpy(&esum,esum_dev,sizeof(double), cudaMemcpyDeviceToHost),__LINE__);
   CHECK(cudaMemcpy(gsum,gsum_dev, 6 * sizeof(double), cudaMemcpyDeviceToHost),__LINE__);
@@ -1645,7 +1832,7 @@ double adjust3d_cuda(NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan, PointPtr scan
   return esum;
 }
 
-double adjust3d_cuda_parallel(int GRID,int BLOCK, NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan_points, PointPtr scan_points_dev, int num, PosturePtr initial, int target, double E_THETA)
+double adjust3d_cuda_parallel(int GRID,int BLOCK, NDMapPtr NDmap_dev, NDPtr NDs_dev, PointPtr scan_points, PointPtr scan_points_dev, int scan_points_num, PosturePtr initial, int target, double E_THETA)
 {
   // aritoshi
   dim3 block(BLOCK);
@@ -1734,16 +1921,17 @@ set_sincos2_cuda(pose->theta, pose->theta2, pose->theta3, sc);
       }
     }
   }
-  CHECK(cudaMemcpy(scan_points_dev, scan_points, num * sizeof(Point), cudaMemcpyHostToDevice),__LINE__);
+  CHECK(cudaMemcpy(scan_points_dev, scan_points, scan_points_num * sizeof(Point), cudaMemcpyHostToDevice),__LINE__);
   CHECK(cudaMemcpy(qd3_dev,qd3_init,sizeof(qd3_init),cudaMemcpyHostToDevice),__LINE__);
   CHECK(cudaMemcpy(qdd3_dev,qdd3_init,sizeof(qdd3_init),cudaMemcpyHostToDevice),__LINE__);
   CHECK(cudaMemcpy(gnum_dev,gnum_init,sizeof(gnum_init),cudaMemcpyHostToDevice),__LINE__);
 
-  adjust3d_func_parallel<<<block,grid>>>(NDs, NDmap_dev, scan_points_dev, pose, num, sc, sc_d, sc_dd,
+  adjust3d_func_parallel<<<block,grid>>>(NDs_dev, NDmap_dev, scan_points_dev, pose, scan_points_num, sc, sc_d, sc_dd,
                 dist, E_THETA, e_dev, hH_dev, gnum_dev, g_dev, x_dev, y_dev, z_dev, p_dev,
                 qd3_dev, qdd3_dev, nd_dev);
 
   CHECK(cudaDeviceSynchronize(),__LINE__);
+  CHECK(cudaThreadSynchronize(),__LINE__);
 
   CHECK(cudaMemcpy(gnum_h, gnum_dev, sizeof(int) * BLOCK, cudaMemcpyDeviceToHost),__LINE__);
   CHECK(cudaMemcpy(e_h, e_dev, sizeof(double) * BLOCK, cudaMemcpyDeviceToHost),__LINE__);
@@ -1808,9 +1996,14 @@ set_sincos2_cuda(pose->theta, pose->theta2, pose->theta3, sc);
   return esum;
 }
 
-void initialize_scan_points_cuda(PointPtr *scan_points_dev,int SCAN_POINTS_NUM){
+void initialize_scan_points_cuda(PointPtr *scan_points_dev,int SCAN_POINTS_NUM)
+{
+  std::cout << "before initialize_scan_points_cuda:" << std::endl;
+  std::cout << "&scan_points_dev : " << *scan_points_dev << std::endl;
   CHECK(cudaMalloc(&(*scan_points_dev), SCAN_POINTS_NUM * sizeof(Point)),__LINE__);
   CHECK(cudaDeviceSynchronize(),__LINE__);
+  std::cout << "after initialize_scan_points_cuda:" << std::endl;
+  std::cout << "&scan_points_dev : " << *scan_points_dev << std::endl;
 }
 
 int cmpmatrix33(double a[3][3], double b[3][3]){
@@ -1912,29 +2105,29 @@ int cmpnd(NDPtr a, NDPtr b){
        printf("fabs(a->z - b->z) : %f\n",fabs(a->z - b->z));
        printf("fabs(a->w - b->w) : %f\n",fabs(a->w - b->w));
 */
-       printf("fabs(a->mean.x - b->mean.x)  < THREASH : %d\n",fabs(a->mean.x - b->mean.x) < THREASH );
-       printf("fabs(a->mean.y - b->mean.y)  < THREASH : %d\n",fabs(a->mean.y - b->mean.y) < THREASH );
-       printf("fabs(a->mean.z - b->mean.z)  < THREASH : %d\n",fabs(a->mean.z - b->mean.z) < THREASH );
-       printf("cmpmatrix33(a->covariance,b->covariance) : %d\n",cmpmatrix33(a->covariance,b->covariance));
-       printf("cmpmatrix33(a->inv_covariance,b->inv_covariance) : %d\n",cmpmatrix33(a->inv_covariance,b->inv_covariance));
-       printf("fabs(a->flag - b->flag) < THREASH : %d\n",fabs(a->flag - b->flag) < THREASH);
-       printf("fabs(a->sign - b->sign) < THREASH : %d\n",fabs(a->sign - b->sign) < THREASH);
-       printf("fabs(a->num - b->num) < THREASH : %d\n",fabs(a->num - b->num) < THREASH);
-       printf("fabs(a->m_x - b->m_x) < THREASH : %d\n",fabs(a->m_x - b->m_x) < THREASH);
-       printf("fabs(a->m_y - b->m_y) < THREASH : %d\n",fabs(a->m_y - b->m_y) < THREASH);
-       printf("fabs(a->m_z - b->m_z) < THREASH : %d\n",fabs(a->m_z - b->m_z) < THREASH);
-       printf("fabs(a->c_xx - b->c_xx)  < THREASH : %d\n",fabs(a->c_xx - b->c_xx) < THREASH );
-       printf("fabs(a->c_yy - b->c_yy)  < THREASH : %d\n",fabs(a->c_yy - b->c_yy) < THREASH );
-       printf("fabs(a->c_zz - b->c_zz)  < THREASH : %d\n",fabs(a->c_zz - b->c_zz) < THREASH );
-       printf("fabs(a->c_xy - b->c_xy)  < THREASH : %d\n",fabs(a->c_xy - b->c_xy) < THREASH );
-       printf("fabs(a->c_yz - b->c_yz)  < THREASH : %d\n",fabs(a->c_yz - b->c_yz) < THREASH );
-       printf("fabs(a->c_zx - b->c_zx  < THREASH : %d\n",fabs(a->c_zx - b->c_zx) < THREASH );
-       printf("fabs(a->x - b->x)  < THREASH : %d\n",fabs(a->x - b->x) < THREASH );
-       printf("fabs(a->y - b->y)  < THREASH : %d\n",fabs(a->y - b->y) < THREASH );
-       printf("fabs(a->z - b->z)  < THREASH : %d\n",fabs(a->z - b->z) < THREASH );
-       printf("fabs(a->w - b->w)  < THREASH : %d\n",fabs(a->w - b->w) < THREASH );
-       printf("cmpmatrix31(a->l,b->l) : %d\n",cmpmatrix31(a->l,b->l));
-       printf("fabs(a->is_source - b->is_source) < THREASH : %d\n",fabs(a->is_source - b->is_source) < THREASH);
+       if(!fabs(a->mean.x - b->mean.x) < THREASH ) printf("fabs(a->mean.x - b->mean.x)  < THREASH : %d\n",fabs(a->mean.x - b->mean.x) < THREASH );
+       if(!fabs(a->mean.y - b->mean.y) < THREASH ) printf("fabs(a->mean.y - b->mean.y)  < THREASH : %d\n",fabs(a->mean.y - b->mean.y) < THREASH );
+       if(!fabs(a->mean.z - b->mean.z) < THREASH) printf("fabs(a->mean.z - b->mean.z)  < THREASH : %d\n",fabs(a->mean.z - b->mean.z) < THREASH );
+       if(!cmpmatrix33(a->covariance,b->covariance)) printf("cmpmatrix33(a->covariance,b->covariance) : %d\n",cmpmatrix33(a->covariance,b->covariance));
+       if(!cmpmatrix33(a->inv_covariance,b->inv_covariance)) printf("cmpmatrix33(a->inv_covariance,b->inv_covariance) : %d\n",cmpmatrix33(a->inv_covariance,b->inv_covariance));
+       if(!fabs(a->flag - b->flag) < THREASH) printf("fabs(a->flag - b->flag) < THREASH : %d\n",fabs(a->flag - b->flag) < THREASH);
+       if(!fabs(a->sign - b->sign) < THREASH) printf("fabs(a->sign - b->sign) < THREASH : %d\n",fabs(a->sign - b->sign) < THREASH);
+       if(!fabs(a->num - b->num) < THREASH) printf("fabs(a->num - b->num) < THREASH : %d\n",fabs(a->num - b->num) < THREASH);
+       if(!fabs(a->m_x - b->m_x) < THREASH) printf("fabs(a->m_x - b->m_x) < THREASH : %d\n",fabs(a->m_x - b->m_x) < THREASH);
+       if(!fabs(a->m_y - b->m_y) < THREASH) printf("fabs(a->m_y - b->m_y) < THREASH : %d\n",fabs(a->m_y - b->m_y) < THREASH);
+       if(!fabs(a->m_z - b->m_z) < THREASH) printf("fabs(a->m_z - b->m_z) < THREASH : %d\n",fabs(a->m_z - b->m_z) < THREASH);
+       if(!fabs(a->c_xx - b->c_xx) < THREASH ) printf("fabs(a->c_xx - b->c_xx)  < THREASH : %d\n",fabs(a->c_xx - b->c_xx) < THREASH );
+       if(!fabs(a->c_yy - b->c_yy) < THREASH ) printf("fabs(a->c_yy - b->c_yy)  < THREASH : %d\n",fabs(a->c_yy - b->c_yy) < THREASH );
+       if(!fabs(a->c_zz - b->c_zz) < THREASH) printf("fabs(a->c_zz - b->c_zz)  < THREASH : %d\n",fabs(a->c_zz - b->c_zz) < THREASH );
+       if(!fabs(a->c_xy - b->c_xy) < THREASH) printf("fabs(a->c_xy - b->c_xy)  < THREASH : %d\n",fabs(a->c_xy - b->c_xy) < THREASH );
+       if(!fabs(a->c_yz - b->c_yz) < THREASH ) printf("fabs(a->c_yz - b->c_yz)  < THREASH : %d\n",fabs(a->c_yz - b->c_yz) < THREASH );
+       if(!fabs(a->c_zx - b->c_zx) < THREASH) printf("fabs(a->c_zx - b->c_zx  < THREASH : %d\n",fabs(a->c_zx - b->c_zx) < THREASH );
+       if(!fabs(a->x - b->x) < THREASH) printf("fabs(a->x - b->x)  < THREASH : %d\n",fabs(a->x - b->x) < THREASH );
+       if(!fabs(a->y - b->y) < THREASH) printf("fabs(a->y - b->y)  < THREASH : %d\n",fabs(a->y - b->y) < THREASH );
+       if(!fabs(a->z - b->z) < THREASH) printf("fabs(a->z - b->z)  < THREASH : %d\n",fabs(a->z - b->z) < THREASH );
+       if(!fabs(a->w - b->w) < THREASH) printf("fabs(a->w - b->w)  < THREASH : %d\n",fabs(a->w - b->w) < THREASH );
+       if(!cmpmatrix31(a->l,b->l)) printf("cmpmatrix31(a->l,b->l) : %d\n",cmpmatrix31(a->l,b->l));
+       if(!fabs(a->is_source - b->is_source) < THREASH) printf("fabs(a->is_source - b->is_source) < THREASH : %d\n",fabs(a->is_source - b->is_source) < THREASH);
        //printf("\n",);
        //printf("\n",);
        //printf("\n",);
@@ -1948,68 +2141,186 @@ int cmpnd(NDPtr a, NDPtr b){
   return ans;
 }
 
-int Test_NDmap(NDMapPtr NDmap,NDMapPtr NDmap_dev,NDPtr NDs,NDPtr NDs_dev_ptr, int *NDs_num_dev_ptr, int NDs_num,
-               NDPtr *nd_dev_ptr,
-               double g_map_cellsize, int g_map_x, int g_map_y, int g_map_z){
-  int map[6],nds = 0,ans;
+int cmpnd2(NDPtr a, NDPtr b){
+  int ans;
+  if(fabs(a->mean.x - b->mean.x)== 0 &&
+     fabs(a->mean.y - b->mean.y)== 0 &&
+     fabs(a->mean.z - b->mean.z)== 0 &&
+     cmpmatrix33(a->covariance,b->covariance) &&
+     cmpmatrix33(a->inv_covariance,b->inv_covariance) &&
+     fabs(a->flag - b->flag)== 0 &&
+     fabs(a->sign - b->sign)== 0 &&
+     fabs(a->num - b->num)== 0 &&
+     fabs(a->m_x - b->m_x)== 0 &&
+     fabs(a->m_y - b->m_y)== 0 &&
+     fabs(a->m_z - b->m_z)== 0 &&
+     fabs(a->c_xx - b->c_xx)== 0 &&
+     fabs(a->c_yy - b->c_yy)== 0 &&
+     fabs(a->c_zz - b->c_zz)== 0 &&
+     fabs(a->c_xy - b->c_xy)== 0 &&
+     fabs(a->c_yz - b->c_yz)== 0 &&
+     fabs(a->c_zx - b->c_zx)== 0 &&
+     fabs(a->x - b->x)== 0 &&
+     fabs(a->y - b->y)== 0 &&
+     fabs(a->z - b->z)== 0 &&
+     fabs(a->w - b->w)== 0 &&
+     cmpmatrix31(a->l,b->l) &&
+     fabs(a->is_source - b->is_source)== 0){
+       ans = 1;
+       //printf("ans : 1\n");
+     }else{
+       ans = 0;
+        printf("ans : 0\n");
+/*
+       printf("fabs(a->mean.x - b->mean.x) : %f\n",fabs(a->mean.x - b->mean.x));
+       printf("fabs(a->mean.y - b->mean.y) : %f\n",fabs(a->mean.y - b->mean.y));
+       printf("fabs(a->mean.z - b->mean.z) : %f\n",fabs(a->mean.z - b->mean.z));
+       printf("fabs(a->c_xx - b->c_xx) : %f\n",fabs(a->c_xx - b->c_xx));
+       printf("fabs(a->c_yy - b->c_yy) : %f\n",fabs(a->c_yy - b->c_yy));
+       printf("fabs(a->c_zz - b->c_zz) : %f\n",fabs(a->c_zz - b->c_zz));
+       printf("fabs(a->c_xy - b->c_xy) : %f\n",fabs(a->c_xy - b->c_xy));
+       printf("fabs(a->c_yz - b->c_yz) : %f\n",fabs(a->c_yz - b->c_yz));
+       printf("fabs(a->c_zx - b->c_zx : %f\n",fabs(a->c_zx - b->c_zx));
+       printf("fabs(a->x - b->x) : %f\n",fabs(a->x - b->x));
+       printf("fabs(a->y - b->y) : %f\n",fabs(a->y - b->y));
+       printf("fabs(a->z - b->z) : %f\n",fabs(a->z - b->z));
+       printf("fabs(a->w - b->w) : %f\n",fabs(a->w - b->w));
+*/
+       if(!fabs(a->mean.x - b->mean.x)== 0 ) printf("fabs(a->mean.x - b->mean.x) == 0 : %d\n",fabs(a->mean.x - b->mean.x)== 0 );
+       if(!fabs(a->mean.y - b->mean.y)== 0 ) printf("fabs(a->mean.y - b->mean.y) == 0 : %d\n",fabs(a->mean.y - b->mean.y)== 0 );
+       if(!fabs(a->mean.z - b->mean.z)== 0) printf("fabs(a->mean.z - b->mean.z) == 0 : %d\n",fabs(a->mean.z - b->mean.z)== 0 );
+       if(!cmpmatrix33(a->covariance,b->covariance)) printf("cmpmatrix33(a->covariance,b->covariance) : %d\n",cmpmatrix33(a->covariance,b->covariance));
+       if(!cmpmatrix33(a->inv_covariance,b->inv_covariance)) printf("cmpmatrix33(a->inv_covariance,b->inv_covariance) : %d\n",cmpmatrix33(a->inv_covariance,b->inv_covariance));
+       if(!fabs(a->flag - b->flag)== 0) printf("fabs(a->flag - b->flag)== 0 : %d\n",fabs(a->flag - b->flag)== 0);
+       if(!fabs(a->sign - b->sign)== 0) printf("fabs(a->sign - b->sign)== 0 : %d\n",fabs(a->sign - b->sign)== 0);
+       if(!fabs(a->num - b->num)== 0) printf("fabs(a->num - b->num)== 0 : %d\n",fabs(a->num - b->num)== 0);
+       if(!fabs(a->m_x - b->m_x)== 0) printf("fabs(a->m_x - b->m_x)== 0 : %d\n",fabs(a->m_x - b->m_x)== 0);
+       if(!fabs(a->m_y - b->m_y)== 0) printf("fabs(a->m_y - b->m_y)== 0 : %d\n",fabs(a->m_y - b->m_y)== 0);
+       if(!fabs(a->m_z - b->m_z)== 0) printf("fabs(a->m_z - b->m_z)== 0 : %d\n",fabs(a->m_z - b->m_z)== 0);
+       if(!fabs(a->c_xx - b->c_xx)== 0 ) printf("fabs(a->c_xx - b->c_xx) == 0 : %d\n",fabs(a->c_xx - b->c_xx)== 0 );
+       if(!fabs(a->c_yy - b->c_yy)== 0 ) printf("fabs(a->c_yy - b->c_yy) == 0 : %d\n",fabs(a->c_yy - b->c_yy)== 0 );
+       if(!fabs(a->c_zz - b->c_zz)== 0) printf("fabs(a->c_zz - b->c_zz) == 0 : %d\n",fabs(a->c_zz - b->c_zz)== 0 );
+       if(!fabs(a->c_xy - b->c_xy)== 0) printf("fabs(a->c_xy - b->c_xy) == 0 : %d\n",fabs(a->c_xy - b->c_xy)== 0 );
+       if(!fabs(a->c_yz - b->c_yz)== 0 ) printf("fabs(a->c_yz - b->c_yz) == 0 : %d\n",fabs(a->c_yz - b->c_yz)== 0 );
+       if(!fabs(a->c_zx - b->c_zx)== 0) printf("fabs(a->c_zx - b->c_zx == 0 : %d\n",fabs(a->c_zx - b->c_zx)== 0 );
+       if(!fabs(a->x - b->x)== 0) printf("fabs(a->x - b->x) == 0 : %d\n",fabs(a->x - b->x)== 0 );
+       if(!fabs(a->y - b->y)== 0) printf("fabs(a->y - b->y) == 0 : %d\n",fabs(a->y - b->y)== 0 );
+       if(!fabs(a->z - b->z)== 0) printf("fabs(a->z - b->z) == 0 : %d\n",fabs(a->z - b->z)== 0 );
+       if(!fabs(a->w - b->w)== 0) printf("fabs(a->w - b->w) == 0 : %d\n",fabs(a->w - b->w)== 0 );
+       if(!cmpmatrix31(a->l,b->l)) printf("cmpmatrix31(a->l,b->l) : %d\n",cmpmatrix31(a->l,b->l));
+       if(!fabs(a->is_source - b->is_source)== 0) printf("fabs(a->is_source - b->is_source)== 0 : %d\n",fabs(a->is_source - b->is_source)== 0);
+       //printf("\n",);
+       //printf("\n",);
+       //printf("\n",);
+       //printf("\n",);
+       //printf("\n",);
+       //printf("\n",);
+       //printf("\n",);
+       //printf("\n",);
+     }
+
+  return ans;
+}
+
+int cmpND(NDMapPtr NDmap, NDMapPtr NDmap_dev, NDPtr NDs, NDPtr NDs_dev, NDPtr *nd_dev){
+  NDMap ndmap_dev;
+  CHECK(cudaMemcpy(&ndmap_dev, NDmap_dev, sizeof(NDMap), cudaMemcpyDeviceToHost),__LINE__);
+  if(nd_dev != ndmap_dev.nd){
+    std::cout << "[ERROR] nd_dev != ndmap_dev.nd" << std::endl;
+    return 0;
+  }
+  NDPtr *ND_dev,*ND;
+  ND = NDmap->nd;
+  ND_dev = (NDPtr *)malloc(sizeof(NDPtr) * ndmap_dev.x * ndmap_dev.y * ndmap_dev.z);
+
+  int i, diff = 0;
+  for (i = 0; i < ndmap_dev.x * ndmap_dev.y * ndmap_dev.z; i++) {
+    if(!(ND_dev[i] == 0 && ND[i] == 0)){
+      if(((ND_dev[i] - ND[i]) != (NDs - NDs_dev))){
+        diff++;
+        if(diff < 10){
+        std::cout << "[EX] (ND_dev[" << i <<"]: " << ND_dev[i] << ", ND[" << i << "]: " << ND[i]
+                  << ", NDs: " << NDs << ", NDs_dev: " << NDs_dev << std::endl;
+        }
+      }
+    }
+  }
+
+  free(ND_dev);
+  if(diff != 0){
+    std::cout << "[ERROR] nd_dev is not correct - diff is " << diff << std::endl;
+    return 0;
+  }
+
+  return 1;
+}
+
+int cmpNDs(NDPtr NDs, NDPtr NDs_dev, int NDs_num, int *NDs_num_dev){
+  NDPtr nds, ndsptr;
+  nds = (NDPtr)malloc(sizeof(NormalDistribution) * MAX_ND_NUM);
+  CHECK(cudaMemcpy(nds, NDs_dev,sizeof(NormalDistribution) * MAX_ND_NUM, cudaMemcpyDeviceToHost),__LINE__);
+  //std::cout << "3" << std::endl;
+  int i, diff = 0, ans = 1;
+  for(i = 0; i < NDs_num; i++){
+    // 1-> OK ,0 -> NG
+    if(!cmpnd2(&nds[i],&NDs[i])){
+      if(i<5){
+        printnd(&nds[i],&NDs[i],i);
+      }
+      diff++;
+    }
+  }
+  free(nds);
+
+  int nds_num;
+  CHECK(cudaMemcpy(&nds_num, NDs_num_dev, sizeof(int), cudaMemcpyDeviceToHost),__LINE__);
+
+  if(diff != 0){
+    std::cout << "[ERROR] NDs_dev is not correct" << std::endl;
+    ans = 0;
+  }
+  if(NDs_num != nds_num){
+    std::cout << "[ERROR] NDs_num_dev is not correct" << std::endl;
+    std::cout << "NDs_num : " << NDs_num << ", NDs_num_dev : " << nds_num << std::endl;
+    ans = 0;
+  }
+
+  return ans;
+}
+
+int cmpNDmap(NDMapPtr NDmap, NDMapPtr NDmap_dev){
+  int ans;
   NDMap ndmap_dev;
   CHECK(cudaMemcpy(&ndmap_dev, NDmap_dev, sizeof(NDMap), cudaMemcpyDeviceToHost),__LINE__);
 
-std::cout << "1" << std::endl;
-std::cout << "NDmap_dev address(Test) : " << NDmap_dev <<  std::endl;
-// まずはマップのメンバ変数が合ってるか確認
-/*
   if((NDmap->x == ndmap_dev.x) &&
-      NDmap->y == ndmap_dev.y &&
-      NDmap->z == ndmap_dev.z &&
-      NDmap->to_x == ndmap_dev.to_x &&
-      NDmap->to_y == ndmap_dev.to_y &&
-      NDmap->size == ndmap_dev.size){
-    map = 0;
+    (NDmap->y == ndmap_dev.y) &&
+    (NDmap->z == ndmap_dev.z) &&
+    (NDmap->to_x == ndmap_dev.to_x) &&
+    (NDmap->to_y == ndmap_dev.to_y) &&
+    (NDmap->layer == ndmap_dev.layer) &&
+    (NDmap->next == ndmap_dev.next) &&
+    (NDmap->size == ndmap_dev.size)){
+      ans = 1;
   }else{
-    map = 1;
-  }
-*/
-map[0] = 0; map[1] = 0; map[2] = 0; map[3] = 0; map[4] = 0; map[5] = 0;
-    if(NDmap->x == ndmap_dev.x) map[0] = 1;
-    if(NDmap->y == ndmap_dev.y) map[1] = 1;
-    if(NDmap->z == ndmap_dev.z) map[2] = 1;
-    if(NDmap->to_x == ndmap_dev.to_x) map[3] = 1;
-    if(NDmap->to_y == ndmap_dev.to_y) map[4] = 1;
-    if(NDmap->size == ndmap_dev.size) map[5] = 1;
-std::cout << "------" << std::endl;
-std::cout << NDmap->x << " " << NDmap->y << " " << NDmap->z << " " << NDmap->to_x << " " << NDmap->to_y << " " << NDmap->size << std::endl;
-std::cout << "------" << std::endl;
-std::cout << ndmap_dev.x << " " << ndmap_dev.y << " " << ndmap_dev.z << " " << ndmap_dev.to_x << " " << ndmap_dev.to_y << " " << ndmap_dev.size << std::endl;
-std::cout << "map : " << map[0] << map[1] << map[2] << map[3] << map[4] << map[5] << std::endl;
-std::cout << "2" << std::endl;
-// 次に、マップに登録されたNDマップの中身が等しいか確認
-  NDPtr nd;
-  nd = (NDPtr)malloc(sizeof(NormalDistribution) * MAX_ND_NUM);
-  CHECK(cudaMemcpy(nd, NDs_dev_ptr,sizeof(NormalDistribution) * MAX_ND_NUM, cudaMemcpyDeviceToHost),__LINE__);
-std::cout << "3" << std::endl;
-  int i;
-  for(i = 0; i < NDs_num; i++){
-    // 1-> OK ,0 -> NG
-    if(i<5){
-      printnd(&nd[i],&NDs[i],i);
-    }
-    if(!cmpnd(&nd[i],&NDs[i])){
-      nds++;
-    }
+      std::cout << "[ERROR] NDmap_dev is not correct" << std::endl;
+      ans = 0;
   }
 
- int NDs_num_h;
- CHECK(cudaMemcpy(&NDs_num_h,NDs_num_dev_ptr,sizeof(int),cudaMemcpyDeviceToHost),__LINE__);
-std::cout << "NDs_num_dev : " << NDs_num_h << std::endl;
-std::cout << "i   : " << i << std::endl;
-std::cout << "nds : " << nds << std::endl;
-std::cout << "4" << std::endl;
-  ans = nds;
-std::cout << "5" << std::endl;
-  free(nd);
-  // 0-> true
   return ans;
+}
+
+int Test_NDmap(NDMapPtr NDmap,NDMapPtr NDmap_dev,NDPtr NDs,NDPtr NDs_dev,
+               int NDs_num, int *NDs_num_dev, NDPtr *nd_dev){
+
+  if(cmpNDmap(NDmap, NDmap_dev) &&
+     cmpNDs(NDs, NDs_dev, NDs_num, NDs_num_dev) &&
+     cmpND(NDmap, NDmap_dev, NDs, NDs_dev, nd_dev)){
+       return 0;
+  }else{
+    return 1;
+  }
+
 }
 
 void free_procedure(NDPtr NDs_dev_ptr, int *NDs_num_dev_ptr, NDPtr *nd_dev_ptr, NDMapPtr ndmap_dev_ptr, PointPtr scan_points_dev){
@@ -2018,4 +2329,8 @@ void free_procedure(NDPtr NDs_dev_ptr, int *NDs_num_dev_ptr, NDPtr *nd_dev_ptr, 
   cudaFree(nd_dev_ptr);
   cudaFree(ndmap_dev_ptr);
   cudaFree(scan_points_dev);
+}
+
+void debug_cuda(){
+  std::cout << "debug here" << std::cout;
 }

@@ -59,14 +59,14 @@ catkin_package(
 include_directories(include ${catkin_INCLUDE_DIRS})
 
 IF(PCL_VERSION VERSION_LESS "1.7.2")
-SET(CMAKE_CXX_FLAGS "-std=c++11 -O2 -g -Wall ${CMAKE_CXX_FLAGS}")
+SET(CMAKE_CXX_FLAGS "-std=c++11 -O0 -g -Wall ${CMAKE_CXX_FLAGS}")
 ELSE(PCL_VERSION VERSION_LESS "1.7.2")
-#SET(CMAKE_CXX_FLAGS "-std=c++11 -O2 -g -Wall -DUSE_FAST_PCL ${CMAKE_CXX_FLAGS}")
-SET(CMAKE_CXX_FLAGS "-std=c++11 -O2 -g -Wall ${CMAKE_CXX_FLAGS}")
+#SET(CMAKE_CXX_FLAGS "-std=c++11 -O0 -g -Wall -DUSE_FAST_PCL ${CMAKE_CXX_FLAGS}")
+SET(CMAKE_CXX_FLAGS "-std=c++11 -O0 -g -Wall ${CMAKE_CXX_FLAGS}")
 ENDIF(PCL_VERSION VERSION_LESS "1.7.2")
 
 
-set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};-std=c++11 -g)
+set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS};-std=c++11 -O0 -g)
 
 add_executable(ndt_matching nodes/ndt_matching/ndt_matching.cpp)
 add_executable(ndt_mapping nodes/ndt_mapping/ndt_mapping.cpp)
