@@ -187,8 +187,8 @@ static void map_callback(const sensor_msgs::PointCloud2::ConstPtr &input)
     free(pp);
 
     if(cuda == 1){
-      int test;
-      test = Test_NDmap(NDmap, NDmap_dev, NDs, NDs_dev, NDs_num, NDs_num_dev, nd_dev);
+      int test = 0;
+      //test = Test_NDmap(NDmap, NDmap_dev, NDs, NDs_dev, NDs_num, NDs_num_dev, nd_dev);
       if(test == 0){
         std::cout << "NDmap_dev : OK" << std::endl;
       }else{
@@ -328,7 +328,8 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
   pose_cuda = pose;
   std::cout << pose_cuda.x << " , " << pose_cuda.y << " , " << pose_cuda.z << std::endl;
 
-  std::cout << "kokomade kiteru6" << std::cout;
+  std::cout << "kokomade kiteru6" << std::endl;
+  std::cout << "&scan_points: " << scan_points << std::endl;
 
   // matching
   for (layer_select = 1; layer_select >= 1; layer_select -= 1)
@@ -360,7 +361,6 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
       }
     }
     iteration = j;
-    std::cout << "j : " << j << std::cout;
     debug_cuda();
 
     if(cuda == 1){
@@ -372,11 +372,12 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
         }
         bpose_cuda = pose_cuda;
         matching_start = std::chrono::system_clock::now();
+        printf("sakiyama2: %p %lf %lf %lf %lf %lf %lf\n", pose_cuda, pose_cuda.x ,pose_cuda.y ,pose_cuda.z ,pose_cuda.theta ,pose_cuda.theta2, pose_cuda.theta3);
           e_cuda = adjust3d_cuda_parallel(GRID, BLOCK, NDmap_dev, NDs_dev, scan_points, scan_points_dev, scan_points_num, &pose_cuda, layer_select, 0.0001);
         matching_end = std::chrono::system_clock::now();
           exe_time = std::chrono::duration_cast<std::chrono::microseconds>(matching_end - matching_start).count() / 1000.0;
           //std::cout << exe_time << " , ";
-          std::cout << "kokomade kiteru" << std::cout;
+          std::cout << "kokomade kiteru" << std::endl;
 
           //	printf("%f\n",e);
           pose_mod(&pose_cuda);
@@ -391,6 +392,7 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
                 }
       }
       iteration_cuda = j_cuda;
+      std::cout << "iteration_cuda: " << iteration_cuda << std::endl;
     }
 
     // aritoshi
@@ -1020,7 +1022,7 @@ void save_nd_map(char *name)
   int i, j, k, layer;
   NDData nddat;
   NDMapPtr ndmap;
-  NDPtr *ndp, *ndp_dev;
+  NDPtr *ndp;
   FILE *ofp;
 
   // for pcd
@@ -1276,7 +1278,7 @@ int main(int argc, char *argv[])
 
   //aritoshi
   if(cuda == 1){
-    free_procedure(NDs_dev, NDs_num_dev, nd_dev, NDmap_dev,scan_points_dev);
+    free_procedure(NDmap_dev, NDs_dev, NDs_num_dev, nd_dev, scan_points_dev);
     cudaReset();
   }
 

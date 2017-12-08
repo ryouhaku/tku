@@ -134,6 +134,10 @@ void initialize_NDmap_layer_cuda(int layer, NDPtr **nd_dev_ptr, NDMapPtr *ndmap_
   //printf("init layer subfunc : %d %d %d\n",x,y,z);
 }
 
+__global__
+void PRINT_ADDRESS(NDPtr NDs_dev){
+  printf("[CUDA SPACE] sizeof(NDs_dev): %p , size: %d\n",NDs_dev, sizeof(NDs_dev));
+}
 
 void initialize_NDmap_cuda(NDPtr *NDs_dev_ptr, int **NDs_num_dev_ptr, NDPtr **nd_dev_ptr, NDMapPtr *NDmap_dev_ptr, double g_map_cellsize, int g_map_x, int g_map_y, int g_map_z)
 {
@@ -144,9 +148,12 @@ void initialize_NDmap_cuda(NDPtr *NDs_dev_ptr, int **NDs_num_dev_ptr, NDPtr **nd
   std::cout << "&NDs_dev - " << *NDs_dev_ptr << std::endl;
   // init NDs_dev
   CHECK(cudaMalloc((void **)&(*NDs_dev_ptr), sizeof(NormalDistribution) * MAX_ND_NUM),__LINE__);
+  std::cout << "[INITIALIZE] &NDs_dev : " << *NDs_dev_ptr << ", size: " << sizeof(*NDs_dev_ptr) << std::endl;
+  PRINT_ADDRESS<<<1,1>>>(*NDs_dev_ptr);
   // init NDs_num
   CHECK(cudaMalloc((void **)&(*NDs_num_dev_ptr), sizeof(int)),__LINE__);
-  int zero = 0;
+  std::cout << "[INITIALIZE] &NDs_num_dev : " << *NDs_num_dev_ptr << std::endl;
+  //int zero = 0;
 
   //add_ND_cuda<<<1,1>>>(*NDs_dev_ptr,*NDs_num_dev_ptr);
   CHECK(cudaDeviceSynchronize(),__LINE__);
@@ -454,16 +461,19 @@ __global__
 void add_point_kernel3(NDPtr NDs, NDPtr NDs_dev, NDPtr *nd_dev, int size){
   //printf("blockDim.x : %d, gridDim.x : %d\n", blockDim.x, gridDim.x);
   int loop = blockIdx.x * blockDim.x + threadIdx.x;
-  int max_step = (size / (blockDim.x * gridDim.x)) + 1;
-
-  for(int step = 0;step < max_step; step += blockDim.x * gridDim.x){
+  //int max_step = (size / (blockDim.x * gridDim.x)) + 1;
+//printf("%d\n",max_step);
+  for(int step = 0;step < size; step += blockDim.x * gridDim.x){
     if(loop + step >= size) return; // 境界チェック
-    nd_dev[loop + step] += (NDs_dev - NDs);
+    //atomicAdd(p, 1);
+    if(nd_dev[loop + step] != 0){
+      nd_dev[loop + step] = NDs_dev + (nd_dev[loop + step] - NDs);
+    }
   }
 }
 
-void checknd(NDPtr *nd_dev,NDMapPtr NDmap){
-  int i,ans, diff = 0;
+void checknd(NDPtr *nd_dev,NDMapPtr NDmap, NDPtr NDs, NDPtr NDs_dev){
+  int i, diff = 0;
   NDPtr *ND_dev,*ND;
   ND_dev = (NDPtr *)malloc(sizeof(NDPtr) * NDmap->x * NDmap->y * NDmap->z);
 
@@ -473,12 +483,6 @@ void checknd(NDPtr *nd_dev,NDMapPtr NDmap){
     if(ND[i] != ND_dev[i]){
       diff++;
     }
-/*
-    if((((((((i == 4690 || i = 4691) || i == 4791) || i == 4792) || i == 4892) || i == 4893) || i == 4993) || i == 4994) || i == 4995){
-      std::cout << "[BEFORE] (ND_dev[" << i <<"]: " << ND_dev[i] << ", ND[" << i << "]: " << ND[i] << std::endl;
-                //<< ", NDs: " << NDs << ", NDs_dev: " << NDs_dev << std::endl;
-    }
-*/
   }
 
   if(diff != 0){
@@ -488,6 +492,25 @@ void checknd(NDPtr *nd_dev,NDMapPtr NDmap){
   }
 
   free(ND_dev);
+}
+
+__global__
+void atom(int *p){
+  atomicAdd(p, 1);
+}
+
+__global__
+void check_kernel(NDPtr *nd_dev, int *p, int size){
+  int loop = blockIdx.x * blockDim.x + threadIdx.x;
+  for(int step = 0;step < size; step += blockDim.x * gridDim.x){
+    if(loop + step >= size) return; // 境界チェック
+    //atomicAdd(p, 1);
+    if(nd_dev[loop + step] != 0){
+      if(nd_dev[loop + step]->w != 1){
+        atomicAdd(p, 1);
+      }
+    }
+  }
 }
 
 void make_ndmap_cuda(Point *pp,pcl::PointCloud<pcl::PointXYZ>::Ptr map_ptr,NDMapPtr NDmap, NDMapPtr NDmap_dev, NDPtr NDs, NDPtr NDs_dev, int NDs_num, int *NDs_num_dev, NDPtr *nd_dev)
@@ -500,14 +523,39 @@ void make_ndmap_cuda(Point *pp,pcl::PointCloud<pcl::PointXYZ>::Ptr map_ptr,NDMap
   CHECK(cudaMemcpy(nd_dev, NDmap->nd, sizeof(NDPtr) * NDmap->x * NDmap->y * NDmap->z, cudaMemcpyHostToDevice),__LINE__);
 
   // check if nd is correctly copied
-  checknd(nd_dev, NDmap);
-
+  checknd(nd_dev, NDmap, NDs, NDs_dev);
+/*
+  int *p, c = 0;
+  CHECK(cudaMalloc(&p,sizeof(int)),__LINE__);
+  CHECK(cudaMemcpy(p,&c,sizeof(int),cudaMemcpyHostToDevice),__LINE__);
+*/
   dim3 block(32);
   dim3 grid(32);
   // shift base address of nd
+  std::cout << "before add_point_kernel3. NDs: " << NDs << ", NDs_dev: " << NDs_dev << ", nd_dev: " << nd_dev << std::endl;
   add_point_kernel3<<<grid,block>>>(NDs, NDs_dev, nd_dev, NDmap->x * NDmap->y * NDmap->z);
+/*
+  CHECK(cudaMemcpy(&c,p,sizeof(int),cudaMemcpyDeviceToHost),__LINE__);
+  std::cout << "GPU run : " << c << std::endl;
+*//*
+  c = 0;
+  CHECK(cudaMemcpy(p,&c,sizeof(int),cudaMemcpyHostToDevice),__LINE__);
+  atom<<<grid,block>>>(p);
+  CHECK(cudaMemcpy(&c,p,sizeof(int),cudaMemcpyDeviceToHost),__LINE__);
+  std::cout << "ATOMIC run : " << c << std::endl;
 
+  CHECK(cudaFree(p),__LINE__);
+*/
+/*
   CHECK(cudaDeviceSynchronize(),__LINE__);
+
+  check_kernel<<<grid,block>>>(nd_dev, p, NDmap->x * NDmap->y * NDmap->z);
+  CHECK(cudaDeviceSynchronize(),__LINE__);
+
+  CHECK(cudaMemcpy(&c,p,sizeof(int),cudaMemcpyDeviceToHost),__LINE__);
+  std::cout << "wrong nd_dev : " << c << std::endl;
+  CHECK(cudaFree(p),__LINE__);
+*/
 }
 
 /*
@@ -1832,11 +1880,12 @@ double adjust3d_cuda(NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan, PointPtr scan
   return esum;
 }
 
-double adjust3d_cuda_parallel(int GRID,int BLOCK, NDMapPtr NDmap_dev, NDPtr NDs_dev, PointPtr scan_points, PointPtr scan_points_dev, int scan_points_num, PosturePtr initial, int target, double E_THETA)
+double adjust3d_cuda_parallel(int GRID, int BLOCK, NDMapPtr NDmap_dev, NDPtr NDs_dev, PointPtr scan_points, PointPtr scan_points_dev, int scan_points_num, PosturePtr initial, int target, double E_THETA)
 {
+  printf("sakiyama\n");
   // aritoshi
-  dim3 block(BLOCK);
-  dim3 grid(GRID);
+  dim3 block(GRID);
+  dim3 grid(BLOCK);
 std::cout << "adjust3d_cuda_parallel" << std::endl;
 // host setup
 double gsum[6], Hsumh[6][6], Hinv[6][6], H[6][6];
@@ -2232,13 +2281,14 @@ int cmpND(NDMapPtr NDmap, NDMapPtr NDmap_dev, NDPtr NDs, NDPtr NDs_dev, NDPtr *n
   NDPtr *ND_dev,*ND;
   ND = NDmap->nd;
   ND_dev = (NDPtr *)malloc(sizeof(NDPtr) * ndmap_dev.x * ndmap_dev.y * ndmap_dev.z);
+  CHECK(cudaMemcpy(ND_dev,nd_dev,sizeof(NDPtr) * ndmap_dev.x * ndmap_dev.y * ndmap_dev.z, cudaMemcpyDeviceToHost),__LINE__);
 
   int i, diff = 0;
-  for (i = 0; i < ndmap_dev.x * ndmap_dev.y * ndmap_dev.z; i++) {
+  for (i = 0; i < ndmap_dev.x * ndmap_dev.y * ndmap_dev.z; i++){
     if(!(ND_dev[i] == 0 && ND[i] == 0)){
-      if(((ND_dev[i] - ND[i]) != (NDs - NDs_dev))){
+      if(((ND[i] - ND_dev[i]) != (NDs - NDs_dev))){
         diff++;
-        if(diff < 10){
+        if(diff < 10 || (i % 10000) == 0){
         std::cout << "[EX] (ND_dev[" << i <<"]: " << ND_dev[i] << ", ND[" << i << "]: " << ND[i]
                   << ", NDs: " << NDs << ", NDs_dev: " << NDs_dev << std::endl;
         }
@@ -2256,7 +2306,7 @@ int cmpND(NDMapPtr NDmap, NDMapPtr NDmap_dev, NDPtr NDs, NDPtr NDs_dev, NDPtr *n
 }
 
 int cmpNDs(NDPtr NDs, NDPtr NDs_dev, int NDs_num, int *NDs_num_dev){
-  NDPtr nds, ndsptr;
+  NDPtr nds;
   nds = (NDPtr)malloc(sizeof(NormalDistribution) * MAX_ND_NUM);
   CHECK(cudaMemcpy(nds, NDs_dev,sizeof(NormalDistribution) * MAX_ND_NUM, cudaMemcpyDeviceToHost),__LINE__);
   //std::cout << "3" << std::endl;
@@ -2323,14 +2373,14 @@ int Test_NDmap(NDMapPtr NDmap,NDMapPtr NDmap_dev,NDPtr NDs,NDPtr NDs_dev,
 
 }
 
-void free_procedure(NDPtr NDs_dev_ptr, int *NDs_num_dev_ptr, NDPtr *nd_dev_ptr, NDMapPtr ndmap_dev_ptr, PointPtr scan_points_dev){
-  cudaFree(NDs_dev_ptr);
-  cudaFree(NDs_num_dev_ptr);
-  cudaFree(nd_dev_ptr);
-  cudaFree(ndmap_dev_ptr);
+void free_procedure(NDMapPtr NDmap_dev, NDPtr NDs_dev, int *NDs_num_dev, NDPtr *nd_dev, PointPtr scan_points_dev){
+  cudaFree(NDmap_dev);
+  cudaFree(NDs_dev);
+  cudaFree(NDs_num_dev);
+  cudaFree(nd_dev);
   cudaFree(scan_points_dev);
 }
 
 void debug_cuda(){
-  std::cout << "debug here" << std::cout;
+  std::cout << "debug here" << std::endl;
 }
