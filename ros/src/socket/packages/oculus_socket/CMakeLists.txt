@@ -8,7 +8,13 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   std_msgs
   visualization_msgs
+#
+  velodyne_pointcloud
+  jsk_recognition_msgs
+  jsk_rviz_plugins
 )
+
+set(CMAKE_CXX_FLAGS "-std=c++11 -O2 -Wall ${CMAKE_CXX_FLAGS}")
 
 catkin_package(
 )

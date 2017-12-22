@@ -46,7 +46,7 @@
 
 #define DEFAULT_NDMAP_FILE "../data/nd_dat"
 
-#define cuda 1  // 0 -> cuda off ,1-> on
+#define cuda 0  // 0 -> cuda off ,1-> on
 #define SCANPOINTS_DEV 130000
 #define GRID 8
 #define BLOCK 8
@@ -372,7 +372,7 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
         }
         bpose_cuda = pose_cuda;
         matching_start = std::chrono::system_clock::now();
-        printf("sakiyama2: %p %lf %lf %lf %lf %lf %lf\n", pose_cuda, pose_cuda.x ,pose_cuda.y ,pose_cuda.z ,pose_cuda.theta ,pose_cuda.theta2, pose_cuda.theta3);
+        //printf("sakiyama2: %p %lf %lf %lf %lf %lf %lf\n", pose_cuda, pose_cuda.x ,pose_cuda.y ,pose_cuda.z ,pose_cuda.theta ,pose_cuda.theta2, pose_cuda.theta3);
           e_cuda = adjust3d_cuda_parallel(GRID, BLOCK, NDmap_dev, NDs_dev, scan_points, scan_points_dev, scan_points_num, &pose_cuda, layer_select, 0.0001);
         matching_end = std::chrono::system_clock::now();
           exe_time = std::chrono::duration_cast<std::chrono::microseconds>(matching_end - matching_start).count() / 1000.0;
@@ -1256,6 +1256,18 @@ int main(int argc, char *argv[])
     std::cout << "initialized scanpoints_cuda" << std::endl;
   }
 
+  if(cuda == 1){
+    double *qd3_dev[SCANPOINTS_DEV][6][3], *qdd3_dev[SCANPOINTS_DEV][6][6][3];
+    double *x[SCANPOINTS_DEV], *y[SCANPOINTS_DEV], *z[SCANPOINTS_DEV];
+    Point *p_dev[SCANPOINTS_DEV];
+    NDPtr *nd_points_dev[SCANPOINTS_DEV][8];
+    double *g_dev[SCANPOINTS_DEV], *hH_dev[SCANPOINTS_DEV][6], *g_num_dev[SCANPOINTS_DEV][6];
+
+
+
+    initialize_adjust_params(&qd3_dev, );
+  }
+
   // load map
   prev_pose.x = (g_ini_x - g_map_center_x) * cos(-g_map_rotation) - (g_ini_y - g_map_center_y) * sin(-g_map_rotation);
   prev_pose.y = (g_ini_x - g_map_center_x) * sin(-g_map_rotation) + (g_ini_y - g_map_center_y) * cos(-g_map_rotation);
@@ -1279,6 +1291,7 @@ int main(int argc, char *argv[])
   //aritoshi
   if(cuda == 1){
     free_procedure(NDmap_dev, NDs_dev, NDs_num_dev, nd_dev, scan_points_dev);
+    free_adjust3d_params();
     cudaReset();
   }
 

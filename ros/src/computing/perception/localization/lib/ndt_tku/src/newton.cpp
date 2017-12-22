@@ -15,18 +15,13 @@ extern int layer_select;
 extern double scan_points_weight[];
 extern double scan_points_totalweight;
 
-double qdd[3][3][2];
-double qd[3][2];
-double qd3[6][3];
-double qdd3[6][6][3];
-
 void set_sincos(double a, double b, double g, double sc_d[3][3][3]);
 void set_sincos2(double a, double b, double g, double sc[3][3]);
 int check_Hessian(double H[3][3]);
 void save_data(PointPtr scan, int num, PosturePtr pose);
 void depth(PointPtr scan, int num, PosturePtr pose);
 
-double calc_summand3d(PointPtr p, NDPtr nd, PosturePtr pose, double *g, double H[6][6], double qd3_d[6][3], double dist)
+double calc_summand3d(PointPtr p, NDPtr nd, PosturePtr pose, double *g, double H[6][6], double qd3[6][3],double qdd3[6][6][3], double dist)
 {
   double a[3];
   double e;
@@ -57,12 +52,12 @@ double calc_summand3d(PointPtr p, NDPtr nd, PosturePtr pose, double *g, double H
   a[1] = q[0] * nd->inv_covariance[0][1] + q[1] * nd->inv_covariance[1][1] + q[2] * nd->inv_covariance[2][1];
   a[2] = q[0] * nd->inv_covariance[0][2] + q[1] * nd->inv_covariance[1][2] + q[2] * nd->inv_covariance[2][2];
 
-  g[0] = (a[0] * qd3_d[0][0] + a[1] * qd3_d[0][1] + a[2] * qd3_d[0][2]);
-  g[1] = (a[0] * qd3_d[1][0] + a[1] * qd3_d[1][1] + a[2] * qd3_d[1][2]);
-  g[2] = (a[0] * qd3_d[2][0] + a[1] * qd3_d[2][1] + a[2] * qd3_d[2][2]);
-  g[3] = (a[0] * qd3_d[3][0] + a[1] * qd3_d[3][1] + a[2] * qd3_d[3][2]);
-  g[4] = (a[0] * qd3_d[4][0] + a[1] * qd3_d[4][1] + a[2] * qd3_d[4][2]);
-  g[5] = (a[0] * qd3_d[5][0] + a[1] * qd3_d[5][1] + a[2] * qd3_d[5][2]);
+  g[0] = (a[0] * qd3[0][0] + a[1] * qd3[0][1] + a[2] * qd3[0][2]);
+  g[1] = (a[0] * qd3[1][0] + a[1] * qd3[1][1] + a[2] * qd3[1][2]);
+  g[2] = (a[0] * qd3[2][0] + a[1] * qd3[2][1] + a[2] * qd3[2][2]);
+  g[3] = (a[0] * qd3[3][0] + a[1] * qd3[3][1] + a[2] * qd3[3][2]);
+  g[4] = (a[0] * qd3[4][0] + a[1] * qd3[4][1] + a[2] * qd3[4][2]);
+  g[5] = (a[0] * qd3[5][0] + a[1] * qd3[5][1] + a[2] * qd3[5][2]);
 
   for (j = 0; j < 6; j++)
   {
@@ -178,29 +173,26 @@ void depth(PointPtr scan, int num, PosturePtr pose)
 
 double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
 {
+  double qd3[6][3], qdd3[6][6][3];
   double gsum[6], Hsum[6][6], Hsumh[6][6], Hinv[6][6], g[6], H[6][6], hH[6][6];
   double sc[3][3], sc_d[3][3][3], sc_dd[3][3][3][3];
   double *work;
   double esum = 0, gnum = 0;
   NDPtr nd[8];
   NDMapPtr nd_map;
-  int i, j, n, m, k, layer;
+  int i, j = 0, n, m, k, layer;
   double x, y, z;
   PosturePtr pose;
   Point p;
   PointPtr scanptr;
   int inc;
   int ndmode;
-  double dist;
+  double dist = 1;
 
   /*initialize*/
-  gsum[0] = 0;
-  gsum[1] = 0;
-  gsum[2] = 0;
-  gsum[3] = 0;
-  gsum[4] = 0;
-  gsum[5] = 0;
-  j = 0;
+  for (n = 0; n < 6; n++) {
+    gsum[n] = 0;
+  }
   zero_matrix6d(Hsum);
   zero_matrix6d(Hsumh);
   pose = initial;
@@ -255,9 +247,20 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
       break;
   }
 
-  //#endif
-
   scanptr = scan;
+
+  if (ndmode == 1)
+    layer = 1;  // layer_select;
+  if (ndmode == 0)
+    layer = 0;  // layer_select;
+  nd_map = NDmap;
+
+  while (layer > 0)
+  {
+    if (nd_map->next)
+      nd_map = nd_map->next;
+    layer--;
+  }
 
   // case of voxel grid filter used
   for (i = 0; i < num; i += inc)
@@ -265,26 +268,11 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
     x = scanptr->x;
     y = scanptr->y;
     z = scanptr->z;
-    dist = 1;
     scanptr += inc;
 
     p.x = x * sc[0][0] + y * sc[0][1] + z * sc[0][2] + pose->x;
     p.y = x * sc[1][0] + y * sc[1][1] + z * sc[1][2] + pose->y;
     p.z = x * sc[2][0] + y * sc[2][1] + z * sc[2][2] + pose->z;
-
-    if (ndmode == 1)
-      layer = 1;  // layer_select;
-    if (ndmode == 0)
-      layer = 0;  // layer_select;
-    nd_map = NDmap;
-
-    while (layer > 0)
-    {
-      if (nd_map->next)
-        nd_map = nd_map->next;
-      layer--;
-    }
-
 
     if (!get_ND(nd_map, &p, nd, target))
       continue;
@@ -314,10 +302,9 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
       if (nd[j]->num > 10 && nd[j]->sign == 1)
       {
         //	double e;
-        esum += calc_summand3d(&p, nd[j], pose, g, hH, qd3, dist);
+        esum += calc_summand3d(&p, nd[j], pose, g, hH, qd3, qdd3, dist);
         add_matrix6d(Hsumh, hH, Hsumh);
 
-        //	  dist =1;
         gsum[0] += g[0];                //*nd[j]->w;
         gsum[1] += g[1];                //*nd[j]->w;
         gsum[2] += g[2] + pose->z * 0;  //*nd[j]->w;

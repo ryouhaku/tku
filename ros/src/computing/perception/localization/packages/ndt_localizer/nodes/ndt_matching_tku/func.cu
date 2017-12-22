@@ -1880,10 +1880,13 @@ double adjust3d_cuda(NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan, PointPtr scan
   return esum;
 }
 
-double adjust3d_cuda_parallel(int GRID, int BLOCK, NDMapPtr NDmap_dev, NDPtr NDs_dev, PointPtr scan_points, PointPtr scan_points_dev, int scan_points_num, PosturePtr initial, int target, double E_THETA)
+double adjust3d_cuda_parallel(
+  int GRID, int BLOCK, NDMapPtr NDmap_dev, NDPtr NDs_dev,
+  PointPtr scan_points, PointPtr scan_points_dev, int scan_points_num,
+  PosturePtr initial, int target, double E_THETA
+)
 {
-  printf("sakiyama\n");
-  // aritoshi
+  //printf("sakiyama\n");
   dim3 block(GRID);
   dim3 grid(BLOCK);
 std::cout << "adjust3d_cuda_parallel" << std::endl;
