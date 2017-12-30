@@ -61,6 +61,10 @@ PointPtr scan_points_dev;
 
 NDPtr *nd_dev;     // initialize_NDmap_layer_cuda で使われるやつら
 //NDMapPtr ndmap_dev;// initialize_NDmap_layer_cuda で使われるやつら
+Point *p_dev;
+double (*qd3_dev)[6][3]; double (*qdd3_dev)[6][6][3];
+NDPtr (*adjust_nd_dev)[8]; double *e_dev; double (*g_dev)[6];
+int *gnum_h; double (*Hh_dev)[6][6];
 
 /*grobal variables*/
 NDMapPtr NDmap; /*���ֲ�����*/
@@ -373,7 +377,13 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
         bpose_cuda = pose_cuda;
         matching_start = std::chrono::system_clock::now();
         //printf("sakiyama2: %p %lf %lf %lf %lf %lf %lf\n", pose_cuda, pose_cuda.x ,pose_cuda.y ,pose_cuda.z ,pose_cuda.theta ,pose_cuda.theta2, pose_cuda.theta3);
-          e_cuda = adjust3d_cuda_parallel(GRID, BLOCK, NDmap_dev, NDs_dev, scan_points, scan_points_dev, scan_points_num, &pose_cuda, layer_select, 0.0001);
+          e_cuda = adjust3d_cuda_parallel(
+            GRID, BLOCK, layer_select, NDmap_dev, NDs_dev, scan_points, scan_points_dev,
+            scan_points_num, &pose_cuda, layer_select, 0.0001,
+            p_dev, qd3_dev, qdd3_dev,
+            adjust_nd_dev, e_dev, g_dev,
+            gnum_h, Hh_dev
+          );
         matching_end = std::chrono::system_clock::now();
           exe_time = std::chrono::duration_cast<std::chrono::microseconds>(matching_end - matching_start).count() / 1000.0;
           //std::cout << exe_time << " , ";
@@ -1265,7 +1275,10 @@ int main(int argc, char *argv[])
 
 
 
-    initialize_adjust_params(&qd3_dev, );
+    initialize_adjust_params(
+      SCANPOINTS_DEV,
+      &p_dev, &qd3_dev, &qdd3_dev, &adjust_nd_dev, &e_dev, &g_dev, &gnum_h, &Hh_dev
+    );
   }
 
   // load map

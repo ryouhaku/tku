@@ -1571,9 +1571,9 @@ void adjust3d_func(NDPtr NDs,NDMapPtr NDmap,PointPtr scanptr,PosturePtr pose, in
 
 
 __global__
-void adjust3d_func_parallel(NDPtr NDs,NDMapPtr NDmap,PointPtr scanptr,PosturePtr pose, int num, double sc[3][3], double sc_d[3][3][3], double sc_dd[3][3][3][3],
+void adjust3d_func_parallel(NDPtr NDs,NDMapPtr NDmap,PointPtr scanptr,PosturePtr pose, int num,
                    double dist, double E_THETA, double e[ID], double hH[ID][6][6], int gnum[ID], double g[ID][6],
-                   double x[ID], double y[ID], double z[ID], Point p[ID], double qd3[ID][6][3], double qdd3[ID][6][6][3], NDPtr nd[ID])
+                   Point p[ID], double qd3[ID][6][3], double qdd3[ID][6][6][3], NDPtr nd[ID])
 {
   int m,k,n;
   //Point p;
@@ -1879,116 +1879,122 @@ double adjust3d_cuda(NDMapPtr NDmap_dev, NDPtr NDs, PointPtr scan, PointPtr scan
   }
   return esum;
 }
+/*
+void init_dev_params(double (*g_dev)[6], ){
+
+}
+*/
+
+void copy_params(
+    int scan_points_num,
+    PointPtr scan_points, double sc[3][3], sc_d[3][3][3], sc_dd[3][3][3][3],
+    PointPtr scan_points_dev,
+    double (*sc_dev)[3][3], double (*sc_d_dev)[3][3][3], double (*sc_dd_dev)[3][3][3][3]
+){
+  cudaMemcpy(scan_points_dev, scan_points, scan_points_num * sizeof(Point), cudaMemcpyHostToDevice);
+  cudaMemcpy(sc_dev, sc, 3 * 3 * sizeof(double), cudaMemcpyHostToDevice);
+  cudaMemcpy(sc_d_dev, sc_d, 3 * 3 * 3 * sizeof(double), cudaMemcpyHostToDevice);
+  cudaMemcpy(sc_dd_dev, sc_dd, 3 * 3 * 3 * 3 * sizeof(double), cudaMemcpyHostToDevice);
+}
+
+__global__
+void adjust3d_cuda_parallel_func<<<grid,block>>>(
+  NDMapPtr nd_map_dev, int target,
+  int scan_points_num, PointPtr scan_points_dev,
+  double (*sc_dev)[3][3], double (*sc_d_dev)[3][3][3], double (*sc_dd_dev)[3][3][3][3],
+  NDPtr (*adjust_nd_dev)[8], double (*qd3_dev)[6][3], double (*qdd3_dev)[6][6][3],
+  double (*g_dev)[6], double (*Hh_dev)[6][6], int *gnum_dev, PointPtr p_dev, PosturePtr pose_dev
+){
+  int loop = blockIdx.x * blockDim.x + threadIdx.x;
+  int max_step = (size / (blockDim.x * gridDim.x)) + 1;
+
+  for(int step = 0;step < max_step; step += blockDim.x * gridDim.x){
+    if(loop + step >= size) return; // 境界チェック
+
+    p_dev[loop + step].x = scan_points_dev[loop + step].x * sc_dev[0][0]
+                          + scan_points_dev[loop + step].y * sc_dev[0][1]
+                          + scan_points_dev[loop + step].z * sc_dev[0][2] + pose_dev->x;
+    p_dev[loop + step].y = scan_points_dev[loop + step].x * sc_dev[1][0]
+                          + scan_points_dev[loop + step].y * sc_dev[1][1]
+                          + scan_points_dev[loop + step].z * sc_dev[1][2] + pose_dev->y;
+    p_dev[loop + step].z = scan_points_dev[loop + step].x * sc_dev[2][0]
+                          + scan_points_dev[loop + step].y * sc_dev[2][1]
+                            + scan_points_dev[loop + step].z * sc_dev[2][2] + pose_dev->z;
+    if (get_ND(nd_map_dev, &p_dev[loop + step], &adjust_nd_dev[loop + step][0], target)) return;
+
+  }
+}
 
 double adjust3d_cuda_parallel(
-  int GRID, int BLOCK, NDMapPtr NDmap_dev, NDPtr NDs_dev,
+  int GRID, int BLOCK, int target, NDMapPtr NDmap_dev, NDPtr NDs_dev,
   PointPtr scan_points, PointPtr scan_points_dev, int scan_points_num,
-  PosturePtr initial, int target, double E_THETA
+  PosturePtr initial, int target, double E_THETA,
+  double dist, double E_THETA,
+  Point *p_dev, PosturePtr pose_dev, double (*qd3_dev)[6][3], double (*qdd3_dev)[6][6][3],
+  NDPtr (*adjust_nd_dev)[8], double *e_dev, double (*g_dev)[6],
+  int *gnum_h, double (*Hh_dev)[6][6],
+  double (*sc_dev)[3][3], double (*sc_d_dev)[3][3][3], double (*sc_dd_dev)[3][3][3][3],
 )
 {
+  int *gnum;
+  double (*Hsum)[6][6];
+  PosturePtr pose;
+  double sc[3][3], sc_d[3][3][3], sc_dd[3][3][3][3];
+  int inc;
+  int ndmode;
+
   //printf("sakiyama\n");
   dim3 block(GRID);
   dim3 grid(BLOCK);
 std::cout << "adjust3d_cuda_parallel" << std::endl;
 // host setup
-double gsum[6], Hsumh[6][6], Hinv[6][6], H[6][6];
-double sc[3][3], sc_d[3][3][3], sc_dd[3][3][3][3];
-double esum = 0, gnum = 0;
-PosturePtr pose;
-double dist = 1;
+  //init_dev_params(g_dev, )
 
-int gnum_init[ID];
-double qd3_init[ID][6][3];
-double qdd3_init[ID][6][6][3];
+  gnum = (int *)malloc(GRID * sizeof(int));
+  Hsum = malloc(GRID * 6 * 6 * sizeof(double));
+  pose = initial;
 
-double e_h[BLOCK], hH_h[BLOCK][6][6], g_h[BLOCK][6];
-int gnum_h[BLOCK];
+  set_sincos(pose->theta, pose->theta2, pose->theta3, sc_d);
+  set_sincos(pose->theta + E_THETA, pose->theta2, pose->theta3, sc_dd[0]);
+  set_sincos(pose->theta, pose->theta2 + E_THETA, pose->theta3, sc_dd[1]);
+  set_sincos(pose->theta, pose->theta2, pose->theta3 + E_THETA, sc_dd[2]);
 
-//initialize
-gsum[0] = 0;
-gsum[1] = 0;
-gsum[2] = 0;
-gsum[3] = 0;
-gsum[4] = 0;
-gsum[5] = 0;
-//  zero_matrix6d(Hsum);
-zero_matrix6d_cuda(Hsumh);
-pose = initial;
+  set_sincos2(pose->theta, pose->theta2, pose->theta3, sc);
 
-//�Ѵ������1����ʬʬ��ޤ�ˤβ�žʬ��׻�
-set_sincos_cuda(pose->theta, pose->theta2, pose->theta3, sc_d);
-set_sincos_cuda(pose->theta + E_THETA, pose->theta2, pose->theta3, sc_dd[0]);
-set_sincos_cuda(pose->theta, pose->theta2 + E_THETA, pose->theta3, sc_dd[1]);
-set_sincos_cuda(pose->theta, pose->theta2, pose->theta3 + E_THETA, sc_dd[2]);
-
-//��ɸ�Ѵ���
-set_sincos2_cuda(pose->theta, pose->theta2, pose->theta3, sc);
-
-// device setup
-  int s,t,u,v;
-
-  int *gnum_dev;
-  double *x_dev, *y_dev, *z_dev, *e_dev;
-  double (*g_dev)[6];
-  double (*hH_dev)[6][6];
-  double (*qd3_dev)[6][3];
-  double (*qdd3_dev)[6][6][3];
-  Point *p_dev;
-  NDPtr *nd_dev;
-
-  CHECK(cudaMalloc(&gnum_dev, ID * sizeof(int)),__LINE__);
-  CHECK(cudaMalloc(&x_dev,ID * sizeof(double)),__LINE__);
-  CHECK(cudaMalloc(&y_dev,ID * sizeof(double)),__LINE__);
-  CHECK(cudaMalloc(&z_dev,ID * sizeof(double)),__LINE__);
-  CHECK(cudaMalloc(&p_dev,ID * sizeof(Point)),__LINE__);
-  CHECK(cudaMalloc(&e_dev,ID * sizeof(double)),__LINE__);
-  CHECK(cudaMalloc(&g_dev,ID * sizeof(double) * 6),__LINE__);
-  CHECK(cudaMalloc(&hH_dev,ID * sizeof(double) * 6 * 6),__LINE__);
-  CHECK(cudaMalloc(&qd3_dev,ID * sizeof(double) * 6 * 3),__LINE__);
-  CHECK(cudaMalloc(&qdd3_dev,ID * sizeof(double) * 6 * 6 * 3),__LINE__);
-  CHECK(cudaMalloc(&nd_dev,ID * sizeof(NDPtr)),__LINE__);
-
-  for(s = 0; s < ID; s++){
-    qd3_init[s][0][0] = 1;
-    qd3_init[s][0][1] = 0;
-    qd3_init[s][0][2] = 0;
-
-    qd3_init[s][1][0] = 0;
-    qd3_init[s][1][1] = 1;
-    qd3_init[s][1][2] = 0;
-
-    qd3_init[s][2][0] = 0;
-    qd3_init[s][2][1] = 0;
-    qd3_init[s][2][2] = 1;
-
-    gnum_init[s] = 0;
-    for (t = 0; t < 6; t++)
-    {
-      for (u = 0; u < 6; u++)
-      {
-        for (v = 0; v < 3; v++)
-        {
-          qdd3_init[s][t][u][v] = 0;
-        }
-      }
-    }
+  // using voxel grid filter
+  switch (target)
+  {
+    case 3:
+      inc = 1;
+      ndmode = 0;
+      break;
+    case 2:
+      inc = 1;
+      ndmode = 1;
+      break;
+    case 1:
+      inc = 1;
+      ndmode = 0;
+      break;
+    default:
+      inc = 1;
+      ndmode = 0;
+      break;
   }
-  CHECK(cudaMemcpy(scan_points_dev, scan_points, scan_points_num * sizeof(Point), cudaMemcpyHostToDevice),__LINE__);
-  CHECK(cudaMemcpy(qd3_dev,qd3_init,sizeof(qd3_init),cudaMemcpyHostToDevice),__LINE__);
-  CHECK(cudaMemcpy(qdd3_dev,qdd3_init,sizeof(qdd3_init),cudaMemcpyHostToDevice),__LINE__);
-  CHECK(cudaMemcpy(gnum_dev,gnum_init,sizeof(gnum_init),cudaMemcpyHostToDevice),__LINE__);
 
-  adjust3d_func_parallel<<<block,grid>>>(NDs_dev, NDmap_dev, scan_points_dev, pose, scan_points_num, sc, sc_d, sc_dd,
-                dist, E_THETA, e_dev, hH_dev, gnum_dev, g_dev, x_dev, y_dev, z_dev, p_dev,
-                qd3_dev, qdd3_dev, nd_dev);
+  copy_params(
+    scan_points_num,
+    scan_points, sc, sc_d, sc_dd,
+    scan_points_dev, sc_dev, sc_d_dev, sc_dd_dev
+  );
 
-  CHECK(cudaDeviceSynchronize(),__LINE__);
-  CHECK(cudaThreadSynchronize(),__LINE__);
+  adjust3d_cuda_parallel_func<<<grid,block>>>(
+    nd_map_dev, target,
+    scan_points_num, scan_points_dev, sc_dev, sc_d_dev, sc_dd_dev, adjust_nd_dev, qd3_dev, qdd3_dev,
+    g_dev, Hh_dev, gnum_dev, p_dev, pose_dev
+  );
 
-  CHECK(cudaMemcpy(gnum_h, gnum_dev, sizeof(int) * BLOCK, cudaMemcpyDeviceToHost),__LINE__);
-  CHECK(cudaMemcpy(e_h, e_dev, sizeof(double) * BLOCK, cudaMemcpyDeviceToHost),__LINE__);
-  CHECK(cudaMemcpy(g_h, g_dev, 6 * sizeof(double)  * BLOCK, cudaMemcpyDeviceToHost),__LINE__);
-  CHECK(cudaMemcpy(hH_h, hH_dev, 6 * 6 * sizeof(double)  * BLOCK, cudaMemcpyDeviceToHost),__LINE__);
+
 
   int w;
   for(w=0;w < BLOCK;w++){
@@ -2374,6 +2380,22 @@ int Test_NDmap(NDMapPtr NDmap,NDMapPtr NDmap_dev,NDPtr NDs,NDPtr NDs_dev,
     return 1;
   }
 
+}
+
+void initialize_adjust_params(
+  int SCANPOINTS_DEV,
+  Point **p_dev, double *(*qd3_dev)[6][3], double *(*qdd3_dev)[6][6][3],
+  NDPtr *(*adjust_nd_dev)[8], double **e_dev, double *(*g_dev)[6],
+  int **gnum_h, double *(*Hh_dev)[6][6]
+){
+  cudaMalloc(p_dev, SCANPOINTS_DEV * sizeof(Point));
+  cudaMalloc(qd3_dev, SCANPOINTS_DEV * 6 * 3 * sizeof(double));
+  cudaMalloc(qdd3_dev, SCANPOINTS_DEV * 6 * 6 * 3 * sizeof(double));
+  cudaMalloc(adjust_nd_dev, SCANPOINTS_DEV * 8 * sizeof(NDPtr));
+  cudaMalloc(e_dev, SCANPOINTS_DEV * sizeof(double));
+  cudaMalloc(g_dev, SCANPOINTS_DEV * 6 * sizeof(double));
+  cudaMalloc(gnum_h, SCANPOINTS_DEV * sizeof(int));
+  cudaMalloc(Hh_dev, SCANPOINTS_DEV * 6 * 6 * sizeof(double));
 }
 
 void free_procedure(NDMapPtr NDmap_dev, NDPtr NDs_dev, int *NDs_num_dev, NDPtr *nd_dev, PointPtr scan_points_dev){
