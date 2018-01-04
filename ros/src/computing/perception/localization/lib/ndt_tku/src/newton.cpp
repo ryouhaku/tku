@@ -21,8 +21,10 @@ int check_Hessian(double H[3][3]);
 void save_data(PointPtr scan, int num, PosturePtr pose);
 void depth(PointPtr scan, int num, PosturePtr pose);
 
-double calc_summand3d(PointPtr p, NDPtr nd, PosturePtr pose, double *g, double H[6][6], double qd3[6][3],double qdd3[6][6][3], double dist)
-{
+double calc_summand3d(
+  PointPtr p, NDPtr nd, PosturePtr pose, double *g, double H[6][6],
+  double qd3[6][3],double qdd3[6][6][3], double dist
+){
   double a[3];
   double e;
   double q[3];
@@ -174,7 +176,7 @@ void depth(PointPtr scan, int num, PosturePtr pose)
 double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
 {
   double qd3[6][3], qdd3[6][6][3];
-  double gsum[6], Hsum[6][6], Hsumh[6][6], Hinv[6][6], g[6], H[6][6], hH[6][6];
+  double gsum[6], Hsum[6][6], Hinv[6][6], g[6], H[6][6], hH[6][6];
   double sc[3][3], sc_d[3][3][3], sc_dd[3][3][3][3];
   double *work;
   double esum = 0, gnum = 0;
@@ -194,7 +196,6 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
     gsum[n] = 0;
   }
   zero_matrix6d(Hsum);
-  zero_matrix6d(Hsumh);
   pose = initial;
 
   set_sincos(pose->theta, pose->theta2, pose->theta3, sc_d);
@@ -303,11 +304,11 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
       {
         //	double e;
         esum += calc_summand3d(&p, nd[j], pose, g, hH, qd3, qdd3, dist);
-        add_matrix6d(Hsumh, hH, Hsumh);
+        add_matrix6d(Hsum, hH, Hsum);
 
         gsum[0] += g[0];                //*nd[j]->w;
         gsum[1] += g[1];                //*nd[j]->w;
-        gsum[2] += g[2] + pose->z * 0;  //*nd[j]->w;
+        gsum[2] += g[2];                //*nd[j]->w;
         gsum[3] += g[3];                //*nd[j]->w;
         gsum[4] += g[4];                //+(pose->theta2-(0.0))*1;//*nd[j]->w;
         gsum[5] += g[5];                //*nd[j]->w;
@@ -326,9 +327,9 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
     H[4][4] = H[4][4] / (gnum * gnum * 0.001);
     H[5][5] = H[5][5] / (gnum * gnum * 0.001);
 
-    add_matrix6d(Hsumh, H, Hsumh);
+    add_matrix6d(Hsum, H, Hsum);
 
-    ginverse_matrix6d(Hsumh, Hinv);
+    ginverse_matrix6d(Hsum, Hinv);
 
 
     pose->x -= (Hinv[0][0] * gsum[0] + Hinv[0][1] * gsum[1] + Hinv[0][2] * gsum[2] + Hinv[0][3] * gsum[3] +

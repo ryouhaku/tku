@@ -46,7 +46,7 @@
 
 #define DEFAULT_NDMAP_FILE "../data/nd_dat"
 
-#define cuda 0  // 0 -> cuda off ,1-> on
+#define cuda 1  // 0 -> cuda off ,1-> on
 #define SCANPOINTS_DEV 130000
 #define GRID 8
 #define BLOCK 8
@@ -59,12 +59,12 @@ NDPtr NDs_dev;
 int *NDs_num_dev;
 PointPtr scan_points_dev;
 
-NDPtr *nd_dev;     // initialize_NDmap_layer_cuda で使われるやつら
-//NDMapPtr ndmap_dev;// initialize_NDmap_layer_cuda で使われるやつら
+NDPtr *nd_dev;
 Point *p_dev;
 double (*qd3_dev)[6][3]; double (*qdd3_dev)[6][6][3];
 NDPtr (*adjust_nd_dev)[8]; double *e_dev; double (*g_dev)[6];
-int *gnum_h; double (*Hh_dev)[6][6];
+int *gnum_dev; double (*hH_dev)[6][6];
+double (*sc_dev)[3], (*sc_d_dev)[3][3], (*sc_dd_dev)[3][3][3];
 
 /*grobal variables*/
 NDMapPtr NDmap; /*���ֲ�����*/
@@ -332,7 +332,6 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
   pose_cuda = pose;
   std::cout << pose_cuda.x << " , " << pose_cuda.y << " , " << pose_cuda.z << std::endl;
 
-  std::cout << "kokomade kiteru6" << std::endl;
   std::cout << "&scan_points: " << scan_points << std::endl;
 
   // matching
@@ -378,11 +377,12 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
         matching_start = std::chrono::system_clock::now();
         //printf("sakiyama2: %p %lf %lf %lf %lf %lf %lf\n", pose_cuda, pose_cuda.x ,pose_cuda.y ,pose_cuda.z ,pose_cuda.theta ,pose_cuda.theta2, pose_cuda.theta3);
           e_cuda = adjust3d_cuda_parallel(
-            GRID, BLOCK, layer_select, NDmap_dev, NDs_dev, scan_points, scan_points_dev,
+            GRID, BLOCK, NDmap_dev, NDs_dev, scan_points, scan_points_dev,
             scan_points_num, &pose_cuda, layer_select, 0.0001,
             p_dev, qd3_dev, qdd3_dev,
             adjust_nd_dev, e_dev, g_dev,
-            gnum_h, Hh_dev
+            gnum_dev, hH_dev,
+            sc_dev, sc_d_dev, sc_dd_dev
           );
         matching_end = std::chrono::system_clock::now();
           exe_time = std::chrono::duration_cast<std::chrono::microseconds>(matching_end - matching_start).count() / 1000.0;
@@ -1267,17 +1267,9 @@ int main(int argc, char *argv[])
   }
 
   if(cuda == 1){
-    double *qd3_dev[SCANPOINTS_DEV][6][3], *qdd3_dev[SCANPOINTS_DEV][6][6][3];
-    double *x[SCANPOINTS_DEV], *y[SCANPOINTS_DEV], *z[SCANPOINTS_DEV];
-    Point *p_dev[SCANPOINTS_DEV];
-    NDPtr *nd_points_dev[SCANPOINTS_DEV][8];
-    double *g_dev[SCANPOINTS_DEV], *hH_dev[SCANPOINTS_DEV][6], *g_num_dev[SCANPOINTS_DEV][6];
-
-
-
     initialize_adjust_params(
       SCANPOINTS_DEV,
-      &p_dev, &qd3_dev, &qdd3_dev, &adjust_nd_dev, &e_dev, &g_dev, &gnum_h, &Hh_dev
+      &p_dev, &qd3_dev, &qdd3_dev, &adjust_nd_dev, &e_dev, &g_dev, &gnum_dev, &hH_dev, &sc_dev, &sc_d_dev, &sc_dd_dev
     );
   }
 
@@ -1304,7 +1296,8 @@ int main(int argc, char *argv[])
   //aritoshi
   if(cuda == 1){
     free_procedure(NDmap_dev, NDs_dev, NDs_num_dev, nd_dev, scan_points_dev);
-    free_adjust3d_params();
+    free_adjust3d_params(p_dev, qd3_dev, qdd3_dev, adjust_nd_dev, e_dev,
+                         g_dev, gnum_dev, hH_dev, sc_dev, sc_d_dev, sc_dd_dev);
     cudaReset();
   }
 
