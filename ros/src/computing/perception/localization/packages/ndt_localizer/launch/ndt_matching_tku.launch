@@ -20,7 +20,7 @@
   <arg name="use_gnss" default="0" />
 
   <!--<node pkg="ndt_localizer" type="ndt_matching_tku" name="ndt_matching_tku" output="screen">-->
-  <node pkg="ndt_localizer" type="ndt_matching_tku" name="ndt_matching_tku" output="screen">
+  <node pkg="ndt_localizer" type="ndt_matching_tku" name="ndt_matching_tku" output="screen" launch-prefix="xterm -e cuda-gdb --args">
     <param name="downsampler" value="$(arg downsampler)" />
     <param name="init_x" value="$(arg init_x)" />
     <param name="init_y" value="$(arg init_y)" />

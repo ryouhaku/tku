@@ -4,7 +4,7 @@ project(ndt_localizer)
 find_package(PCL REQUIRED)
 find_package(CUDA REQUIRED)
 
-#list(APPEND CUDA_NVCC_FLAGS "-arch=sm_20;-std=c++11;-O2;-DVERBOSE")
+#list(APPEND CUDA_NVCC_FLAGS "-g;-G;-arch=sm_20;-std=c++11;-O2;-DVERBOSE")
 #SET(CUDA_PROPAGATE_HOST_FLAGS OFF)
 
 IF(NOT (PCL_VERSION VERSION_LESS "1.7.2"))

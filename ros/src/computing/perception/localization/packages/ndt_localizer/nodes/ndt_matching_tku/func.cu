@@ -3,6 +3,7 @@
 #include <math.h>
 #include <string>
 #include "std_msgs/String.h"
+#include <unistd.h>
 
 #include <GL/glut.h>
 #include <iostream>
@@ -1480,12 +1481,13 @@ void copy_params(
     int scan_points_num,
     PointPtr scan_points, double sc[3][3], double sc_d[3][3][3], double sc_dd[3][3][3][3],
     PointPtr scan_points_dev,
-    double (*sc_dev)[3], double (*sc_d_dev)[3][3], double (*sc_dd_dev)[3][3][3]
+    double (*sc_dev)[3], double (*sc_d_dev)[3][3], double (*sc_dd_dev)[3][3][3], PosturePtr pose, PosturePtr pose_dev
 ){
-  cudaMemcpy(scan_points_dev, scan_points, scan_points_num * sizeof(Point), cudaMemcpyHostToDevice);
-  cudaMemcpy(sc_dev, sc, 3 * 3 * sizeof(double), cudaMemcpyHostToDevice);
-  cudaMemcpy(sc_d_dev, sc_d, 3 * 3 * 3 * sizeof(double), cudaMemcpyHostToDevice);
-  cudaMemcpy(sc_dd_dev, sc_dd, 3 * 3 * 3 * 3 * sizeof(double), cudaMemcpyHostToDevice);
+  CHECK(cudaMemcpy(scan_points_dev, scan_points, scan_points_num * sizeof(Point), cudaMemcpyHostToDevice),__LINE__);
+  CHECK(cudaMemcpy(sc_dev, sc, 3 * 3 * sizeof(double), cudaMemcpyHostToDevice),__LINE__);
+  CHECK(cudaMemcpy(sc_d_dev, sc_d, 3 * 3 * 3 * sizeof(double), cudaMemcpyHostToDevice),__LINE__);
+  CHECK(cudaMemcpy(sc_dd_dev, sc_dd, 3 * 3 * 3 * 3 * sizeof(double), cudaMemcpyHostToDevice),__LINE__);
+  CHECK(cudaMemcpy(pose_dev, pose, sizeof(Posture), cudaMemcpyHostToDevice),__LINE__);
 }
 
 __global__
@@ -1495,10 +1497,13 @@ void adjust3d_cuda_parallel_func(
   double (*sc_dev)[3], double (*sc_d_dev)[3][3], double (*sc_dd_dev)[3][3][3],
   NDPtr (*adjust_nd_dev)[8], double (*qd3_dev)[6][3], double (*qdd3_dev)[6][6][3],
   double (*g_dev)[6], double (*hH_dev)[6][6], int *gnum_dev,
-  PointPtr p_dev, double * e_dev, PosturePtr pose_dev
+  PointPtr p_dev, double * e_dev, Posture pose
 ){
   int loop = blockIdx.x * blockDim.x + threadIdx.x;
   int max_step = (scan_points_num / (blockDim.x * gridDim.x)) + 1;
+  PosturePtr pose_dev = &pose;
+
+  if(loop == 0) printf("hore\n");
 
   for(int step = 0;step < max_step; step += blockDim.x * gridDim.x){
     if(loop + step >= scan_points_num) return; // 境界チェック
@@ -1512,6 +1517,7 @@ void adjust3d_cuda_parallel_func(
     p_dev[loop + step].z = scan_points_dev[loop + step].x * sc_dev[2][0]
                           + scan_points_dev[loop + step].y * sc_dev[2][1]
                             + scan_points_dev[loop + step].z * sc_dev[2][2] + pose_dev->z;
+    //printf("kokomade!\n");
     if (get_ND_cuda_parallel(NDs, nd_map_dev, &p_dev[loop + step], adjust_nd_dev[loop + step], target)) return;
 
     for (int m = 0; m < 3; m++) {
@@ -1543,6 +1549,13 @@ void adjust3d_cuda_parallel_func(
     }
   }
 
+  for(int stride = blockDim.x / 2; stdide > 0; stride >>= 1){
+    if(tid < stride){
+      e_dev[]
+    }
+    __syncthreads();
+  }
+
 
 }
 
@@ -1572,10 +1585,11 @@ double adjust3d_cuda_parallel(
   double *e_grid, esum = 0;
   double sc[3][3], sc_d[3][3][3], sc_dd[3][3][3][3];
   double dist = 1;
+  PosturePtr pose_dev;
 
   //printf("sakiyama\n");
-  dim3 block(GRID);
-  dim3 grid(BLOCK);
+  dim3 block(BLOCK);
+  dim3 grid(GRID);
 std::cout << "adjust3d_cuda_parallel" << std::endl;
 // host setup
   //init_dev_params(g_dev, )
@@ -1584,6 +1598,8 @@ std::cout << "adjust3d_cuda_parallel" << std::endl;
   hH_grid = (double (*)[6][6])malloc(GRID * 6 * 6 * sizeof(double));
   gsum_grid = (double (*)[6])malloc(GRID * 6 * sizeof(double));
   e_grid = (double *)malloc(GRID * sizeof(double));
+  CHECK(cudaMalloc(&pose_dev, sizeof(Posture)),__LINE__);
+
 
   for (int n = 0; n < 6; n++) {
     gsum[n] = 0;
@@ -1600,15 +1616,20 @@ std::cout << "adjust3d_cuda_parallel" << std::endl;
   copy_params(
     scan_points_num,
     scan_points, sc, sc_d, sc_dd,
-    scan_points_dev, sc_dev, sc_d_dev, sc_dd_dev
+    scan_points_dev, sc_dev, sc_d_dev, sc_dd_dev, pose, pose_dev
   );
+
+  std::cout << "5 sec stop" << std::endl;
+  sleep(5);
 
   adjust3d_cuda_parallel_func<<<grid,block>>>(
     NDmap_dev, NDs_dev, target, dist, E_THETA,
     scan_points_num, scan_points_dev,
     sc_dev, sc_d_dev, sc_dd_dev, adjust_nd_dev, qd3_dev, qdd3_dev,
-    g_dev, hH_dev, gnum_dev, p_dev, e_dev, pose
+    g_dev, hH_dev, gnum_dev, p_dev, e_dev, *pose
   );
+
+  CHECK(cudaDeviceSynchronize(),__LINE__);
 
   copy_results(GRID, gsum_grid, g_dev, hH_grid, hH_dev, gnum_grid, gnum_dev, e_grid, e_dev);
 
@@ -1659,6 +1680,7 @@ std::cout << "adjust3d_cuda_parallel" << std::endl;
   free(hH_grid);
   free(gsum_grid);
   free(e_grid);
+  CHECK(cudaFree(pose_dev),__LINE__);
 
   return esum;
 }

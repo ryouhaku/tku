@@ -387,7 +387,7 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
         matching_end = std::chrono::system_clock::now();
           exe_time = std::chrono::duration_cast<std::chrono::microseconds>(matching_end - matching_start).count() / 1000.0;
           //std::cout << exe_time << " , ";
-          std::cout << "kokomade kiteru" << std::endl;
+          std::cout << "kokomade kiteru e_cuda:" << e_cuda << std::endl;
 
           //	printf("%f\n",e);
           pose_mod(&pose_cuda);
