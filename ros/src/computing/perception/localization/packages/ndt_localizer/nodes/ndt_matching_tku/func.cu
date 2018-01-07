@@ -1499,6 +1499,7 @@ void adjust3d_cuda_parallel_func(
   double (*g_dev)[6], double (*hH_dev)[6][6], int *gnum_dev,
   PointPtr p_dev, double * e_dev, Posture pose
 ){
+  int tid = threadIdx.x;
   int loop = blockIdx.x * blockDim.x + threadIdx.x;
   int max_step = (scan_points_num / (blockDim.x * gridDim.x)) + 1;
   PosturePtr pose_dev = &pose;
@@ -1506,52 +1507,66 @@ void adjust3d_cuda_parallel_func(
   if(loop == 0) printf("hore\n");
 
   for(int step = 0;step < max_step; step += blockDim.x * gridDim.x){
-    if(loop + step >= scan_points_num) return; // 境界チェック
+    if(loop + step < scan_points_num){ // 境界チェック
 
-    p_dev[loop + step].x = scan_points_dev[loop + step].x * sc_dev[0][0]
-                          + scan_points_dev[loop + step].y * sc_dev[0][1]
-                          + scan_points_dev[loop + step].z * sc_dev[0][2] + pose_dev->x;
-    p_dev[loop + step].y = scan_points_dev[loop + step].x * sc_dev[1][0]
-                          + scan_points_dev[loop + step].y * sc_dev[1][1]
-                          + scan_points_dev[loop + step].z * sc_dev[1][2] + pose_dev->y;
-    p_dev[loop + step].z = scan_points_dev[loop + step].x * sc_dev[2][0]
-                          + scan_points_dev[loop + step].y * sc_dev[2][1]
-                            + scan_points_dev[loop + step].z * sc_dev[2][2] + pose_dev->z;
-    //printf("kokomade!\n");
-    if (get_ND_cuda_parallel(NDs, nd_map_dev, &p_dev[loop + step], adjust_nd_dev[loop + step], target)) return;
+      p_dev[loop + step].x = scan_points_dev[loop + step].x * sc_dev[0][0]
+                           + scan_points_dev[loop + step].y * sc_dev[0][1]
+                           + scan_points_dev[loop + step].z * sc_dev[0][2] + pose_dev->x;
+      p_dev[loop + step].y = scan_points_dev[loop + step].x * sc_dev[1][0]
+                           + scan_points_dev[loop + step].y * sc_dev[1][1]
+                           + scan_points_dev[loop + step].z * sc_dev[1][2] + pose_dev->y;
+      p_dev[loop + step].z = scan_points_dev[loop + step].x * sc_dev[2][0]
+                           + scan_points_dev[loop + step].y * sc_dev[2][1]
+                           + scan_points_dev[loop + step].z * sc_dev[2][2] + pose_dev->z;
+      //printf("kokomade!\n");
+      if (get_ND_cuda_parallel(NDs, nd_map_dev, &p_dev[loop + step], adjust_nd_dev[loop + step], target)){
 
-    for (int m = 0; m < 3; m++) {
-      for (int k = 0; k < 3; k++) {
-        qd3_dev[loop + step][m + 3][k] = scan_points_dev[loop + step].x * sc_d_dev[m][k][0]
-                                       + scan_points_dev[loop + step].y * sc_d_dev[m][k][1]
-                                       + scan_points_dev[loop + step].z * sc_d_dev[m][k][2];
-      }
-    }
-
-    for (int n = 0; n < 3; n++) {
-      for (int m = 0; m < 3; m++) {
-        for (int k = 0; k < 3; k++) {
-          qdd3_dev[loop + step][n + 3][m + 3][k] = (scan_points_dev[loop + step].x * sc_dd_dev[n][m][k][0]
-                                                + scan_points_dev[loop + step].y * sc_dd_dev[n][m][k][1]
-                                                + scan_points_dev[loop + step].z * sc_dd_dev[n][m][k][2]
-                                                - qd3_dev[loop + step][m + 3][k]) / E_THETA;
+        for (int m = 0; m < 3; m++) {
+          for (int k = 0; k < 3; k++) {
+            qd3_dev[loop + step][m + 3][k] = scan_points_dev[loop + step].x * sc_d_dev[m][k][0]
+                                           + scan_points_dev[loop + step].y * sc_d_dev[m][k][1]
+                                           + scan_points_dev[loop + step].z * sc_d_dev[m][k][2];
+          }
         }
-      }
-    }
 
-    if(adjust_nd_dev[loop + step][0]){
-      if(adjust_nd_dev[loop + step][0]->num > 10 && adjust_nd_dev[loop + step][0]->sign == 1){
-        e_dev[loop + step] = calc_summand3d_cuda(&p_dev[loop + step], adjust_nd_dev[loop + step][0],
-                      pose_dev, g_dev[loop + step], hH_dev[loop + step], qd3_dev[loop + step],
-                      qdd3_dev[loop + step], dist);
-        gnum_dev[loop + step] = 1;
+        for (int n = 0; n < 3; n++) {
+          for (int m = 0; m < 3; m++) {
+            for (int k = 0; k < 3; k++) {
+              qdd3_dev[loop + step][n + 3][m + 3][k] = (scan_points_dev[loop + step].x * sc_dd_dev[n][m][k][0]
+                                                     + scan_points_dev[loop + step].y * sc_dd_dev[n][m][k][1]
+                                                     + scan_points_dev[loop + step].z * sc_dd_dev[n][m][k][2]
+                                                     - qd3_dev[loop + step][m + 3][k]) / E_THETA;
+            }
+          }
+        }
+
+        if(adjust_nd_dev[loop + step][0]){
+          if(adjust_nd_dev[loop + step][0]->num > 10 && adjust_nd_dev[loop + step][0]->sign == 1){
+            e_dev[loop + step] = calc_summand3d_cuda(&p_dev[loop + step], adjust_nd_dev[loop + step][0],
+                          pose_dev, g_dev[loop + step], hH_dev[loop + step], qd3_dev[loop + step],
+                          qdd3_dev[loop + step], dist);
+            gnum_dev[loop + step] = 1;
+          }
+        }
+      }else{
+        e_dev[loop + step] = 0;
+        gnum_dev[loop + step] = 0;
+        for(int k=0;k<6;k++){
+          for(int l=0;l<6;l++){
+             hH_dev[loop + step][k][l] = 0;
+          }
+          g_dev[loop + step][k] = 0;
+        }
       }
     }
   }
 
   for(int stride = blockDim.x / 2; stdide > 0; stride >>= 1){
-    if(tid < stride){
-      e_dev[]
+    if(loop < scan_points_num){
+      if(tid < stride){
+
+      }
+      e_dev[] += e_dev[];
     }
     __syncthreads();
   }
