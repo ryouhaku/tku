@@ -1,0 +1,9 @@
+digraph G {
+"base_link" -> "velodyne"[label="Broadcaster: /base_link_to_localizer\nAverage rate: 105.009 Hz\nMost recent transform: 1421634915.278 ( -0.007 sec old)\nBuffer length: 0.162 sec\n"];
+"map" -> "base_link"[label="Broadcaster: /ndt_matching\nAverage rate: 10000.000 Hz\nMost recent transform: 1421634915.188 ( 0.083 sec old)\nBuffer length: 0.000 sec\n"];
+"world" -> "map"[label="Broadcaster: /world_to_map\nAverage rate: 105.009 Hz\nMost recent transform: 1421634915.278 ( -0.007 sec old)\nBuffer length: 0.162 sec\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 1421634915.271"[ shape=plaintext ] ;
+ }->"world";
+}

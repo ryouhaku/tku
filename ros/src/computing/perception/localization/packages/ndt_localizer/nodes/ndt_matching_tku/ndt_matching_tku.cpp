@@ -119,8 +119,8 @@ static int map_loaded = 0;
 
 static ros::Publisher ndmap_pub;
 
-static std::chrono::time_point<std::chrono::system_clock> matching_start, matching_end;
-static double exe_time = 0.0;
+static std::chrono::time_point<std::chrono::system_clock> matching_start, matching_end, matching_start1, matching_end1, matching_start2, matching_end2;
+static double exe_time = 0.0, exe_time1 = 0.0, exe_time2 = 0.0;
 
 std::string _downsampler;
 
@@ -330,14 +330,15 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
   initial_pose = pose;
   // aritoshi
   pose_cuda = pose;
-  std::cout << pose_cuda.x << " , " << pose_cuda.y << " , " << pose_cuda.z << std::endl;
+  //std::cout << pose_cuda.x << " , " << pose_cuda.y << " , " << pose_cuda.z << std::endl;
 
-  std::cout << "&scan_points: " << scan_points << std::endl;
+  //std::cout << "&scan_points: " << scan_points << std::endl;
 
   // matching
   for (layer_select = 1; layer_select >= 1; layer_select -= 1)
   {
     //    	printf("layer=%d\n",layer_select);
+    matching_start1 = std::chrono::system_clock::now();
     for (j = 0; j < 100; j++)
     {
       if (layer_select != 1 && j > 2)
@@ -364,9 +365,11 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
       }
     }
     iteration = j;
-    debug_cuda();
+    matching_end1 = std::chrono::system_clock::now();
+    exe_time1 = std::chrono::duration_cast<std::chrono::microseconds>(matching_end1 - matching_start1).count() / 1000.0;
 
     if(cuda == 1){
+      matching_start2 = std::chrono::system_clock::now();
       for (j_cuda = 0; j_cuda < 100; j_cuda++)
       {
         if (layer_select != 1 && j_cuda > 2)
@@ -387,7 +390,7 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
         matching_end = std::chrono::system_clock::now();
           exe_time = std::chrono::duration_cast<std::chrono::microseconds>(matching_end - matching_start).count() / 1000.0;
           //std::cout << exe_time << " , ";
-          std::cout << "kokomade kiteru e_cuda:" << e_cuda << std::endl;
+          //std::cout << "kokomade kiteru e_cuda:" << e_cuda << std::endl;
 
           //	printf("%f\n",e);
           pose_mod(&pose_cuda);
@@ -402,7 +405,34 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
                 }
       }
       iteration_cuda = j_cuda;
-      std::cout << "iteration_cuda: " << iteration_cuda << std::endl;
+      matching_end2 = std::chrono::system_clock::now();
+      exe_time2 = std::chrono::duration_cast<std::chrono::microseconds>(matching_end2 - matching_start2).count() / 1000.0;
+    }
+
+    if(1){
+      std::cout << "-----------------------------------------------------------------" << std::endl;
+      std::cout << "Sequence number: " << msg->header.seq << std::endl;
+      std::cout << "Number of iteration: " << iteration << std::endl;
+      std::cout << "scan_points_num: " << scan_points_num << std::endl;
+      std::cout << "(x,y,z,roll,pitch,yaw):" << std::endl;
+      std::cout << "(" << pose.x << ", " << pose.y << ", " << pose.z << ", " << pose.theta << ", " << pose.theta2 << ", "
+                << pose.theta3 << ")" << std::endl;
+      std::cout << "Execution time: " << exe_time1 << std::endl;
+      std::cout << "--------------" << std::endl;
+      std::cout << "Number of iteration: " << iteration_cuda << std::endl;
+      std::cout << "(x,y,z,roll,pitch,yaw):" << std::endl;
+      std::cout << "(" << pose_cuda.x << ", " << pose_cuda.y << ", " << pose_cuda.z << ", " << pose_cuda.theta << ", " << pose_cuda.theta2 << ", "
+                << pose_cuda.theta3 << ")" << std::endl;
+      std::cout << "Execution time: " << exe_time2 << std::endl;
+      std::cout << "-----------------------------------------------------------------" << std::endl;
+
+
+/*
+      std::cout << "Number of scan points: " << msg->size() << " points." << std::endl;
+      std::cout << "Number of filtered scan points: " << scan_points_num << " points." << std::endl;
+      std::cout << "Number of iteration: " << iteration << std::endl;
+      std::cout << "Execution time: " << exe_time << std::endl;
+*/
     }
 
     // aritoshi
@@ -414,11 +444,15 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
               3 * (pose_cuda.theta3 - pose.theta3) * (pose_cuda.theta3 - pose.theta3);
       if (diff <  0.00001)
       {
-        //std::cout << "cuda : OK\n" << std::endl;
+        std::cout << "cuda : OK\n" << std::endl;
+        //sleep(4);
       }else{
-        //std::cout << "cuda : NG -- diff : " << diff << "\n" << std::endl;
+        std::cout << "cuda : NG -- diff : " << diff << "\n" << std::endl;
       }
+      std::cout << "-----------------------------------------------------------------" << std::endl;
     }
+
+    //pose = pose_cuda;
 
     /*gps resetting*/
     if (g_use_gnss)
@@ -463,7 +497,7 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
     }
     // unti-distotion
 
-    if (layer_select == 2 && 1)
+    if (layer_select == 2)
     {
       //    		double rate,angle,xrate,yrate,dx,dy,dtheta;
       double rate, xrate, yrate, dx, dy, dtheta;
@@ -607,6 +641,7 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
 
   matching_end = std::chrono::system_clock::now();
   exe_time = std::chrono::duration_cast<std::chrono::microseconds>(matching_end - matching_start).count() / 1000.0;
+/*
 if(print_status == 1){
   std::cout << "-----------------------------------------------------------------" << std::endl;
   std::cout << "Sequence number: " << msg->header.seq << std::endl;
@@ -619,6 +654,7 @@ if(print_status == 1){
             << pose.theta3 << ")" << std::endl;
   std::cout << "-----------------------------------------------------------------" << std::endl;
 }
+*/
   //  ROS_INFO("get data %d",msg->points.size());
 }
 

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
+#include <unistd.h>
 
 #include "algebra.h"
 #include "ndt.h"
@@ -344,6 +345,9 @@ double adjust3d(PointPtr scan, int num, PosturePtr initial, int target)
                      Hinv[4][4] * gsum[4] + Hinv[4][5] * gsum[5]);
     pose->theta3 -= (Hinv[5][0] * gsum[0] + Hinv[5][1] * gsum[1] + Hinv[5][2] * gsum[2] + Hinv[5][3] * gsum[3] +
                      Hinv[5][4] * gsum[4] + Hinv[5][5] * gsum[5]);
+  }else{
+    printf("[ERROR]CPU is not throuing koko\n");
+    //sleep(10);
   }
   return esum;
 }

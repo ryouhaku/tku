@@ -18,7 +18,7 @@ void cudaReset();
 void update_covariance_gpu(NDPtr *nd);
 void test_cuda(Point *pp,pcl::PointCloud<pcl::PointXYZ>::Ptr map_ptr,NDMapPtr NDmap_dev, int *NDs_num_dev, NDPtr NDs_dev,double g_map_center_x,double g_map_center_y,double g_map_center_z,double sin_g_map_rotation,double cos_g_map_rotation);
 void make_ndmap_cuda(Point *pp,pcl::PointCloud<pcl::PointXYZ>::Ptr map_ptr,NDMapPtr NDmap, NDMapPtr NDmap_dev, NDPtr NDs, NDPtr NDs_dev, int NDs_num, int *NDs_num_dev, NDPtr *nd_dev);
-void debug_cuda();
+
 void initialize_adjust_params(
   int SCANPOINTS_DEV,
   Point **p_dev, double (**qd3_dev)[6][3], double (**qdd3_dev)[6][6][3],

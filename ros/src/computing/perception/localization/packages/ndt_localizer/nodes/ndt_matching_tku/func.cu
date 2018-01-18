@@ -1481,13 +1481,13 @@ void copy_params(
     int scan_points_num,
     PointPtr scan_points, double sc[3][3], double sc_d[3][3][3], double sc_dd[3][3][3][3],
     PointPtr scan_points_dev,
-    double (*sc_dev)[3], double (*sc_d_dev)[3][3], double (*sc_dd_dev)[3][3][3], PosturePtr pose, PosturePtr pose_dev
+    double (*sc_dev)[3], double (*sc_d_dev)[3][3], double (*sc_dd_dev)[3][3][3]//, PosturePtr pose, PosturePtr pose_dev
 ){
   CHECK(cudaMemcpy(scan_points_dev, scan_points, scan_points_num * sizeof(Point), cudaMemcpyHostToDevice),__LINE__);
   CHECK(cudaMemcpy(sc_dev, sc, 3 * 3 * sizeof(double), cudaMemcpyHostToDevice),__LINE__);
   CHECK(cudaMemcpy(sc_d_dev, sc_d, 3 * 3 * 3 * sizeof(double), cudaMemcpyHostToDevice),__LINE__);
   CHECK(cudaMemcpy(sc_dd_dev, sc_dd, 3 * 3 * 3 * 3 * sizeof(double), cudaMemcpyHostToDevice),__LINE__);
-  CHECK(cudaMemcpy(pose_dev, pose, sizeof(Posture), cudaMemcpyHostToDevice),__LINE__);
+  //CHECK(cudaMemcpy(pose_dev, pose, sizeof(Posture), cudaMemcpyHostToDevice),__LINE__);
 }
 
 __global__
@@ -1500,11 +1500,12 @@ void adjust3d_cuda_parallel_func(
   PointPtr p_dev, double * e_dev, Posture pose
 ){
   int tid = threadIdx.x;
+  int bid = blockIdx.x;
   int loop = blockIdx.x * blockDim.x + threadIdx.x;
   int max_step = (scan_points_num / (blockDim.x * gridDim.x)) + 1;
   PosturePtr pose_dev = &pose;
 
-  if(loop == 0) printf("hore\n");
+  //if(loop == 0) printf("hore\n");
 
   for(int step = 0;step < max_step; step += blockDim.x * gridDim.x){
     if(loop + step < scan_points_num){ // 境界チェック
@@ -1558,17 +1559,62 @@ void adjust3d_cuda_parallel_func(
           g_dev[loop + step][k] = 0;
         }
       }
-    }
-  }
-
-  for(int stride = blockDim.x / 2; stdide > 0; stride >>= 1){
-    if(loop < scan_points_num){
-      if(tid < stride){
-
+    }else{
+      e_dev[loop + step] = 0;
+      gnum_dev[loop + step] = 0;
+      for(int k=0;k<6;k++){
+        for(int l=0;l<6;l++){
+           hH_dev[loop + step][k][l] = 0;
+        }
+        g_dev[loop + step][k] = 0;
       }
-      e_dev[] += e_dev[];
     }
     __syncthreads();
+  }
+
+  for(int step = 0;step < max_step; step += blockDim.x * gridDim.x){
+    for(int stride = blockDim.x / 2; stride > 0; stride >>= 1){
+      //if(loop + step < scan_points_num){
+        if(tid < stride){
+          e_dev[loop + step] += e_dev[loop + step + stride];
+          gnum_dev[loop + step] += gnum_dev[loop + step + stride];
+          g_dev[loop + step][0] += g_dev[loop + step + stride][0];
+          g_dev[loop + step][1] += g_dev[loop + step + stride][1];
+          g_dev[loop + step][2] += g_dev[loop + step + stride][2];
+          g_dev[loop + step][3] += g_dev[loop + step + stride][3];
+          g_dev[loop + step][4] += g_dev[loop + step + stride][4];
+          g_dev[loop + step][5] += g_dev[loop + step + stride][5];
+          add_matrix6d_cuda(hH_dev[loop + step], hH_dev[loop + step + stride], hH_dev[loop + step]);
+        }
+      //}
+      __syncthreads();
+    }
+    for(int width = gridDim.x /2; width > 0; width >>= 1){
+      //if(loop + step < scan_points_num){
+        if(bid < width){
+          e_dev[loop + step] += e_dev[loop + step + width * blockDim.x];
+          gnum_dev[loop + step] += gnum_dev[loop + step + width * blockDim.x];
+          g_dev[loop + step][0] += g_dev[loop + step + width * blockDim.x][0];
+          g_dev[loop + step][1] += g_dev[loop + step + width * blockDim.x][1];
+          g_dev[loop + step][2] += g_dev[loop + step + width * blockDim.x][2];
+          g_dev[loop + step][3] += g_dev[loop + step + width * blockDim.x][3];
+          g_dev[loop + step][4] += g_dev[loop + step + width * blockDim.x][4];
+          g_dev[loop + step][5] += g_dev[loop + step + width * blockDim.x][5];
+          add_matrix6d_cuda(hH_dev[loop + step], hH_dev[loop + step + width * blockDim.x], hH_dev[loop + step]);
+        }
+      __syncthreads();
+    }
+    if(step != 0){
+      e_dev[0] += e_dev[step * blockDim.x * gridDim.x];
+      gnum_dev[0] += gnum_dev[step * blockDim.x * gridDim.x];
+      g_dev[0][0] += g_dev[step * blockDim.x * gridDim.x][0];
+      g_dev[0][1] += g_dev[step * blockDim.x * gridDim.x][1];
+      g_dev[0][2] += g_dev[step * blockDim.x * gridDim.x][2];
+      g_dev[0][3] += g_dev[step * blockDim.x * gridDim.x][3];
+      g_dev[0][4] += g_dev[step * blockDim.x * gridDim.x][4];
+      g_dev[0][5] += g_dev[step * blockDim.x * gridDim.x][5];
+      add_matrix6d_cuda(hH_dev[0], hH_dev[step * blockDim.x * gridDim.x], hH_dev[0]);
+    }
   }
 
 
@@ -1597,15 +1643,15 @@ double adjust3d_cuda_parallel(
   int *gnum_grid, gnum = 0;
   double (*hH_grid)[6][6], H[6][6], Hsum[6][6], Hinv[6][6];
   double (*gsum_grid)[6], gsum[6];
-  double *e_grid, esum = 0;
+  double *e_grid, esum = 0.0;
   double sc[3][3], sc_d[3][3][3], sc_dd[3][3][3][3];
   double dist = 1;
-  PosturePtr pose_dev;
+  //PosturePtr pose_dev;
 
   //printf("sakiyama\n");
   dim3 block(BLOCK);
   dim3 grid(GRID);
-std::cout << "adjust3d_cuda_parallel" << std::endl;
+//std::cout << "adjust3d_cuda_parallel" << std::endl;
 // host setup
   //init_dev_params(g_dev, )
 
@@ -1613,7 +1659,7 @@ std::cout << "adjust3d_cuda_parallel" << std::endl;
   hH_grid = (double (*)[6][6])malloc(GRID * 6 * 6 * sizeof(double));
   gsum_grid = (double (*)[6])malloc(GRID * 6 * sizeof(double));
   e_grid = (double *)malloc(GRID * sizeof(double));
-  CHECK(cudaMalloc(&pose_dev, sizeof(Posture)),__LINE__);
+  //CHECK(cudaMalloc(&pose_dev, sizeof(Posture)),__LINE__);
 
 
   for (int n = 0; n < 6; n++) {
@@ -1631,11 +1677,11 @@ std::cout << "adjust3d_cuda_parallel" << std::endl;
   copy_params(
     scan_points_num,
     scan_points, sc, sc_d, sc_dd,
-    scan_points_dev, sc_dev, sc_d_dev, sc_dd_dev, pose, pose_dev
+    scan_points_dev, sc_dev, sc_d_dev, sc_dd_dev//, pose, pose_dev
   );
 
-  std::cout << "5 sec stop" << std::endl;
-  sleep(5);
+  //std::cout << "5 sec stop" << std::endl;
+  //sleep(5);
 
   adjust3d_cuda_parallel_func<<<grid,block>>>(
     NDmap_dev, NDs_dev, target, dist, E_THETA,
@@ -1648,7 +1694,7 @@ std::cout << "adjust3d_cuda_parallel" << std::endl;
 
   copy_results(GRID, gsum_grid, g_dev, hH_grid, hH_dev, gnum_grid, gnum_dev, e_grid, e_dev);
 
-  for(int w = 0; w < GRID; w++){
+  for(int w = 0; w < 1; w++){
     add_matrix6d_cuda(Hsum, hH_grid[w], Hsum);
     gsum[0] += gsum_grid[w][0];
     gsum[1] += gsum_grid[w][1];
@@ -1656,9 +1702,11 @@ std::cout << "adjust3d_cuda_parallel" << std::endl;
     gsum[3] += gsum_grid[w][3];
     gsum[4] += gsum_grid[w][4];
     gsum[5] += gsum_grid[w][5];
-    gnum += (double)gnum_grid[w];
+    gnum += gnum_grid[w];
     esum += e_grid[w];
   }
+
+  //printf("gnum: %d\n", gnum);
 
   if (gnum > 1)
   {
@@ -1689,13 +1737,16 @@ std::cout << "adjust3d_cuda_parallel" << std::endl;
                      Hinv[4][4] * gsum[4] + Hinv[4][5] * gsum[5]);
     pose->theta3 -= (Hinv[5][0] * gsum[0] + Hinv[5][1] * gsum[1] + Hinv[5][2] * gsum[2] + Hinv[5][3] * gsum[3] +
                      Hinv[5][4] * gsum[4] + Hinv[5][5] * gsum[5]);
+  }else{
+    printf("[ERROR]CUDA is not throuing koko\n");
+    //sleep(1);
   }
 
   free(gnum_grid);
   free(hH_grid);
   free(gsum_grid);
   free(e_grid);
-  CHECK(cudaFree(pose_dev),__LINE__);
+  //CHECK(cudaFree(pose_dev),__LINE__);
 
   return esum;
 }
@@ -2073,8 +2124,4 @@ void free_adjust3d_params(
   CHECK(cudaFree(sc_dev),__LINE__);
   CHECK(cudaFree(sc_d_dev),__LINE__);
   CHECK(cudaFree(sc_dd_dev),__LINE__);
-}
-
-void debug_cuda(){
-  std::cout << "debug here" << std::endl;
 }
