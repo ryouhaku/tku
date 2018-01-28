@@ -411,6 +411,7 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
 
     if(1){
       std::cout << "-----------------------------------------------------------------" << std::endl;
+      std::cout << "CPU:" << std::endl;
       std::cout << "Sequence number: " << msg->header.seq << std::endl;
       std::cout << "Number of iteration: " << iteration << std::endl;
       std::cout << "scan_points_num: " << scan_points_num << std::endl;
@@ -419,6 +420,7 @@ void points_callback(const pcl::PointCloud<pcl::PointXYZI>::ConstPtr &msg)
                 << pose.theta3 << ")" << std::endl;
       std::cout << "Execution time: " << exe_time1 << std::endl;
       std::cout << "--------------" << std::endl;
+      std::cout << "GPU:" << std::endl;
       std::cout << "Number of iteration: " << iteration_cuda << std::endl;
       std::cout << "(x,y,z,roll,pitch,yaw):" << std::endl;
       std::cout << "(" << pose_cuda.x << ", " << pose_cuda.y << ", " << pose_cuda.z << ", " << pose_cuda.theta << ", " << pose_cuda.theta2 << ", "
