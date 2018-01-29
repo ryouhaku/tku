@@ -19,6 +19,9 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+//#include "OscSendTests.h"
+#include <oscpack>
+
 #define BUFSIZE 1024
 #define NDT_PORT 59630
 #define PI 3.141592
@@ -43,7 +46,7 @@ static void current_pose_Callback(const geometry_msgs::PoseStamped::ConstPtr& in
   tf::Matrix3x3 m(q);
 
   m.getEulerYPR(yaw, pitch, roll);
-  
+
   ROS_INFO("x=[%f] y=[%f] z=[%f]", input->pose.position.x, input->pose.position.y, input->pose.position.z);
   ROS_INFO("roll=[%f] pitch=[%f] yaw=[%f], PI=[%f]", roll/PI*180, pitch/PI*180, yaw/PI*180, PI);
   gettimeofday(&t,NULL);
@@ -60,7 +63,7 @@ static void obj_pose_Callback(const visualization_msgs::MarkerArray::ConstPtr& i
     tf::Matrix3x3 m(q);
 
     m.getEulerYPR(yaw, pitch, roll);
-  
+
     ROS_INFO("x=[%.6f] y=[%.6f] z=[%.6f]", item->pose.position.x, item->pose.position.y, item->pose.position.z);
     ROS_INFO("roll=[%f] pitch=[%f] yaw=[%f], PI=[%f]", roll/PI*180, pitch/PI*180, yaw/PI*180, PI);
     gettimeofday(&t,NULL);
@@ -83,7 +86,7 @@ static void vscan_Callback(const sensor_msgs::PointCloud2ConstPtr& msg){
   pcl::fromROSMsg(*msg, _vscan);
   for (pcl::PointCloud<pcl::PointXYZ>::const_iterator item = _vscan.begin(); item != _vscan.end(); item++){
     if (item->x == 0 && item->y == 0)continue;
-    if(prev.x==0&&prev.y==0&&prev.y==0){	
+    if(prev.x==0&&prev.y==0&&prev.y==0){
       prev.x = item->x;
       prev.y = item->y;
       prev.z = item->z;
@@ -95,7 +98,7 @@ static void vscan_Callback(const sensor_msgs::PointCloud2ConstPtr& msg){
 
       sendto(sock1, buf2, sizeof(buf1), 0, (struct sockaddr *)&addr1, sizeof(addr1));
 
-      prev.x=0; prev.y=0; prev.z=0; 
+      prev.x=0; prev.y=0; prev.z=0;
     }
   }
 }
@@ -122,4 +125,3 @@ int main (int argc, char **argv)
 
   return 0;
 }
-
