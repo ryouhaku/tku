@@ -19,8 +19,8 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-//#include "OscSendTests.h"
-#include <oscpack>
+#include "OscSendTests.h"
+//#include <oscpack>
 
 #define BUFSIZE 1024
 #define NDT_PORT 59630

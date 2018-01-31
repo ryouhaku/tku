@@ -8,10 +8,15 @@ find_package(catkin REQUIRED COMPONENTS
   rospy
   std_msgs
   visualization_msgs
-  #oscpack
+  #liboscpack
+  ip
+  osc
 )
 
+set(CMAKE_CXX_FLAGS "-std=c++11 -O2 -Wall -loscpack ${CMAKE_CXX_FLAGS}")
+
 catkin_package(
+  DEPENDS ip osc
 )
 
 include_directories(
@@ -19,4 +24,5 @@ include_directories(
 )
 
 add_executable(oculus_sender nodes/oculus_sender/oculus_sender.cpp)
+#add_library(oculus_socket liboscpack)
 target_link_libraries(oculus_sender ${catkin_LIBRARIES})
